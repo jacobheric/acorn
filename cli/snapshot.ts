@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,6 +11,7 @@ export const snapshot = (repo: string, commit: string, output: string) => {
   const gitDir = mkdtempSync(join(tmpdir(), "acorn-git-"));
   try {
     execFileSync("git", ["clone", "-q", "--bare", "--shared", repo, gitDir]);
+    mkdirSync(join(gitDir, "info"), { recursive: true });
     writeFileSync(join(gitDir, "info", "attributes"), rawAttributes);
     execFileSync("git", [
       ...["--git-dir", gitDir, "archive", "--format=tar"],

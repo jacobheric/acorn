@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { snapshot as remote } from "../runner/execute.mjs";
 import { snapshot as local } from "../cli/snapshot.ts";
 
@@ -52,5 +52,17 @@ describe("source snapshots", () => {
     local(repo, git("rev-parse", "HEAD"), tar);
     expect(extracted(tar)).toEqual(expected);
     expect(git("status", "--porcelain")).toBe("");
+  });
+  it("creates local snapshots without Git's default templates", () => {
+    const templates = join(root, "empty-templates");
+    mkdirSync(templates);
+    vi.stubEnv("GIT_TEMPLATE_DIR", templates);
+    try {
+      const tar = join(root, "without-templates.tar");
+      local(repo, git("rev-parse", "HEAD"), tar);
+      expect(extracted(tar)).toEqual(expected);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
