@@ -30,6 +30,7 @@ const fixture = ({
   autoMerge = false,
   withdrawn = false,
   changedBase = false,
+  queuedCheck = false,
 } = {}) => {
   const checks = [];
   let prReads = 0;
@@ -43,7 +44,13 @@ const fixture = ({
         base: { sha: changedBase && prReads > 1 ? merge : base },
         auto_merge: autoMerge && !(withdrawn && prReads > 1) ? {} : null,
       };
-    } else if (url.endsWith("/check-runs")) data = { id: 42 };
+    } else if (url.includes("/check-runs?"))
+      data = {
+        check_runs: queuedCheck
+          ? [{ id: 42, app: { slug: "github-actions" }, details_url: env.ACORN_URL }]
+          : [],
+      };
+    else if (url.endsWith("/check-runs")) data = { id: 42 };
     else if (url.endsWith("/check-runs/42")) {
       checks.push(JSON.parse(options.body));
       data = {};
@@ -103,6 +110,23 @@ describe("GitHub action", () => {
     expect(checks.at(-1).conclusion).toBe("success");
     expect(checks.at(-1).output.title).toBe("Full CI passed before merge");
   });
+  it.each(["true", "false"])(
+    "finishes the waiting check instead of leaving it blocking the merge (automatic: %s)",
+    async (automatic) => {
+      const { request, checks } = fixture({ autoMerge: true, queuedCheck: true });
+      await runAction(
+        { ...env, ACORN_MODE: "firewall", ACORN_WAIT_FOR_MERGE: automatic },
+        request,
+        async () => {},
+      );
+      expect(
+        request.mock.calls.some(([url, options]) =>
+          url.endsWith("/check-runs") && options.method === "POST",
+        ),
+      ).toBe(false);
+      expect(checks.at(-1).conclusion).toBe("success");
+    },
+  );
   it("reports an explicit opt-out without starting compute", async () => {
     const { request, checks } = fixture();
     await runAction(

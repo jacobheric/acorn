@@ -74,12 +74,29 @@ export const runAction = async (
       },
       body: body ? JSON.stringify(body) : undefined,
     });
-  const check = await github("/check-runs", {
-    name: ACORN_MODE === "firewall" ? "Acorn / merge gate" : "Acorn / CI",
-    head_sha: ACORN_COMMIT,
-    status: automaticGate ? "queued" : "in_progress",
-    details_url: base,
-  });
+  const name = ACORN_MODE === "firewall" ? "Acorn / merge gate" : "Acorn / CI";
+  const pending =
+    ACORN_MODE === "firewall"
+      ? (
+          await github(
+            `/commits/${ACORN_COMMIT}/check-runs?check_name=${encodeURIComponent(name)}&status=queued&filter=all&per_page=100`,
+          )
+        ).check_runs.find(
+          (candidate) =>
+            candidate.app?.slug === "github-actions" &&
+            candidate.details_url === base,
+        )
+      : undefined;
+  const check =
+    pending ??
+    (await github("/check-runs", {
+      name,
+      head_sha: ACORN_COMMIT,
+      status: automaticGate ? "queued" : "in_progress",
+      details_url: base,
+    }));
+  if (pending && !automaticGate)
+    await github(`/check-runs/${check.id}`, { status: "in_progress" }, "PATCH");
   let run;
   const writeCheck = async (conclusion, title, summary) => {
     const output = run?.logs
