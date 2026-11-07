@@ -105,18 +105,6 @@ pre {
 .brand-period {
   color: #66956e;
 }
-.alpha {
-  font-family: var(--mono);
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.7px;
-  border: 1px solid #d7dfd3;
-  background: #f0f4ec;
-  padding: 2px 5px;
-  border-radius: 4px;
-  margin-left: auto;
-  color: #63805f;
-}
 .workspace {
   display: flex;
   align-items: center;
@@ -1444,9 +1432,6 @@ main {
   .brand img {
     width: 27px;
     height: 27px;
-  }
-  .alpha {
-    margin-left: 2px;
   }
   .workspace,
   .nav-label,

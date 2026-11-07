@@ -141,7 +141,6 @@ const App = () => {
           <span>
             acorn<span className="brand-period">.</span>
           </span>
-          <span className="alpha">LAB</span>
         </a>
         <div className="workspace">
           <span className="workspace-icon">J</span>
