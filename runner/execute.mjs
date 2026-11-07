@@ -1,5 +1,5 @@
 const { spawn } = await import('node:child_process');
-const { mkdtemp, mkdir, chown, readdir, lstat } = await import('node:fs/promises');
+const { mkdtemp, mkdir, chown, chmod, readdir, lstat } = await import('node:fs/promises');
 const { tmpdir } = await import('node:os');
 const { join } = await import('node:path');
 const { createHash } = await import('node:crypto');
@@ -27,12 +27,13 @@ const runProcess = (command, args, options = {}) => new Promise((resolve, reject
 const ownTree = async path => {
   const stat = await lstat(path);
   if (stat.isSymbolicLink()) return;
-  await chown(path, 1000, 1000);
   if (stat.isDirectory()) for (const entry of await readdir(path)) await ownTree(join(path, entry));
+  await chown(path, 1000, 1000);
 };
 
 const execute = async ({ recipe, commit, tree, archive, onOutput = () => {} }) => {
   const root = await mkdtemp(join(tmpdir(), 'relay-'));
+  await chmod(root, 0o755);
   const source = join(root, 'source');
   await mkdir(source);
   const checked = async (command, args, cwd = root) => {
