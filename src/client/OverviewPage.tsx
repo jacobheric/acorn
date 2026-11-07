@@ -46,7 +46,9 @@ export const OverviewPage = ({
 }) => {
   const [ref, setRef] = useState("main");
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
-  const active = data?.runs.find(isActive);
+  const active =
+    data?.runs.find((run) => isActive(run) && run.status !== "queued") ??
+    data?.runs.find(isActive);
   const currentRun = data?.runs.find((run) => run.id === selectedRun);
   const localReceipts =
     data?.receipts.filter(
@@ -61,7 +63,7 @@ export const OverviewPage = ({
         reason: "manual",
       });
       setSelectedRun(result.run.id);
-      notify("Runner requested. Railway is provisioning the container.");
+      notify("Run queued. Relay starts it when the runner is available.");
     });
   return (
     <>
@@ -201,7 +203,7 @@ export const OverviewPage = ({
                       {short(run.commit)}
                       <span>·</span>
                       {run.reason === "firewall"
-                        ? "Merge firewall"
+                        ? "Merge gate"
                         : run.reason === "fallback"
                           ? "GitHub fallback"
                           : "Manual run"}

@@ -210,7 +210,7 @@ if (command === "keygen") {
       mode: 0o600,
     });
     console.log(
-      `\nSigned receipt: ${output}\nPush your commit, then: npm run relay -- publish ${output} --server ${server}`,
+      `\nSigned receipt: ${output}\nPublish before pushing: npm run relay -- publish ${output} --server ${server}`,
     );
   } finally {
     await rm(temp, { recursive: true, force: true });

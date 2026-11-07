@@ -10,7 +10,8 @@ export const createStore = (path: string) => {
     PRAGMA journal_mode = WAL;
     PRAGMA busy_timeout = 5000;
     CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, status TEXT NOT NULL, data TEXT NOT NULL);
-    CREATE UNIQUE INDEX IF NOT EXISTS one_active_run ON runs((1)) WHERE status IN ('queued', 'starting', 'running', 'stopping');
+    DROP INDEX IF EXISTS one_active_run;
+    CREATE UNIQUE INDEX IF NOT EXISTS one_runner ON runs((1)) WHERE status IN ('starting', 'running', 'stopping');
     CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, tree TEXT NOT NULL, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS signers (id TEXT PRIMARY KEY, data TEXT NOT NULL);
   `);

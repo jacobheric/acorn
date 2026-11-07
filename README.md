@@ -1,14 +1,14 @@
 # Relay
 
-Run CI once. Carry the result.
+Assert CI anywhere. Respect it everywhere.
 
-Relay lets a trusted developer run CI on their laptop, sign the result, and bring that result to a pull request. GitHub checks the receipt instead of repeating the suite. When fresh compute is needed, Relay starts a container through Railway's GraphQL API, runs CI, and removes the container.
+Relay lets a trusted developer run CI on their laptop or in their agent's compute, sign the result, and ship that result with the pull request. A GitHub Actions workflow asks Relay to verify the receipt. Without one, CI runs automatically on Railway. When fresh compute is needed, Relay starts a container through Railway's GraphQL API, runs CI, and removes the container.
 
 [Live dashboard](https://relay-production-f406.up.railway.app) · [Demo repository](https://github.com/jacobheric/railway-demo)
 
 ## Why
 
-CI can become the longest part of a small change. More parallel jobs and faster machines help, but they still repeat work that may already be done. This is an experiment in trusting a signed result from a known device, with an independent full run on each merge to main.
+CI can become the longest part of a small change. More parallel jobs and faster machines help, but they still repeat work that may already be done. This is an experiment in trusting a signed result from a known device, with an independent full run required before merging. Local execution is optional; ordinary pushes still run CI when there is no usable receipt.
 
 It is deliberately small: one public repository, one CI recipe, one active Railway runner. No team onboarding, billing, or general workflow engine.
 
@@ -50,13 +50,13 @@ npm run relay -- register --label "My laptop"
 unset RELAY_ADMIN_TOKEN
 
 npm run relay -- run --repo ../railway-demo
-git -C ../railway-demo push
 npm run relay -- publish /path/printed/by/the/run.json
+git -C ../railway-demo push
 ```
 
 Commit changes before running. The CLI rejects a dirty working tree, exports the committed snapshot, and tests it in the exact Linux image configured by the coordinator. It signs only a successful result. Neither the device key nor the operator token enters the test container.
 
-Push before publishing the receipt: the server asks GitHub to confirm that the claimed tree belongs to the commit. The PR check allows one minute for the receipt to arrive. If it arrives later, rerun the check.
+Publish before pushing. Relay validates the signature when you upload, then checks the actual GitHub source tree when the PR workflow requests verification. An uploaded receipt alone never makes a check pass. If you skip local CI, push normally: Relay starts remote CI immediately.
 
 Keys default to `~/.config/relay/key.pem`. Use `--key` to choose another path, `--out` to choose the receipt path, and `--server` to override `RELAY_URL`.
 
@@ -66,27 +66,33 @@ A receipt contains the repository, original commit, Git tree, recipe digest, sig
 
 Reuse requires the same repository, **entire Git tree**, and recipe. The recipe includes the pinned image digest, `linux/amd64`, command, environment, timeout, and protocol version. A commit-message amendment preserves the tree; changing any file, including a comment or README, changes it. There is no source rewriting or comment detection.
 
-Receipts expire after seven days. Revoking a key invalidates its receipts on the next verification. A recipe change invalidates old receipts. A merge to main always requests fresh CI, regardless of existing receipts.
+Receipts expire after seven days. Revoking a key invalidates its receipts on the next verification. A recipe change invalidates old receipts. The merge gate always requests fresh remote CI, regardless of existing receipts.
 
 **A signature proves who made an assertion, not that the assertion is honest.** A trusted signer can lie, alter their CLI, or lose their key. This design accepts that trust boundary. It is not suitable for untrusted contributors without an independent runner. Passing tests also do not prove that the suite is complete.
 
-The merge firewall runs **after** a push to main. It detects integration failures; it does not prevent a bad merge or test GitHub's synthetic merge commit. A production version could move that run into a merge queue.
+The merge gate tests **GitHub’s proposed merge commit before merging**, including the current target branch. It checks that the PR head and target branch have not changed before accepting the result. The demo requires the gate and an up-to-date branch through branch protection; deployments can keep their existing trigger after merge. There is no post-merge CI workflow.
 
 ## GitHub integration
 
-`action/` is a dependency-free composite action. It posts a check on the exact commit with the tree, recipe, signer, receipt, and dashboard link.
+`action/` is a dependency-free composite action. It reports the tested source, receipt, result, and the last 8,000 characters of test output in the GitHub check and Actions summary.
 
-| Mode       | Behavior                                                  |
-| ---------- | --------------------------------------------------------- |
-| `verify`   | Verify a receipt; never start compute.                    |
-| `fallback` | Reuse a valid receipt, otherwise start Railway CI.        |
-| `firewall` | Always start fresh Railway CI and require its own result. |
+| Mode | Behavior |
+| --- | --- |
+| `verify` | Verify an existing receipt without requesting compute. |
+| `fallback` | Reuse a valid receipt, otherwise run CI on Railway. |
+| `firewall` | Always run fresh remote CI. With `pull-request`, test the proposed merge result. |
 
-The demo uses a base-branch `pull_request_target` workflow to verify receipts. It never checks out or executes PR code in the privileged Actions job. The action is pinned to a commit. Test code runs only in the disposable container, without GitHub or Railway credentials.
+The demo’s **PR CI** workflow runs on PR creation and updates using `fallback`. It uses `pull_request_target` and a pinned action from this repository. The privileged job never checks out or executes PR code; tests run in the disposable container. Each PR has its own GitHub concurrency group with cancellation enabled.
 
-The **Run on Railway** workflow provides the optional fallback. Pushes to main use the firewall mode. Both need the `RELAY_URL` repository variable and `RELAY_AUTOMATION_TOKEN` secret. The automation token can only request runs; it cannot add keys or stop runs.
+A new PR head supersedes older work. Relay cancels and removes the old container, even if GitHub has already killed the waiting workflow. Its periodic reconciliation also checks PR heads independently. Different PRs wait in a persistent queue for the single physical runner. Delayed workflows for obsolete heads cannot start CI; late callbacks cannot create passing results after cancellation.
 
-The coordinator is part of the trusted system: Actions trusts its HTTPS verification response. Requiring the `Relay / trusted receipt` check in branch protection is a separate repository policy choice. A production GitHub App would provide installation identity and better key ownership than this small operator-token setup.
+When a PR is ready, run **Run merge gate** from the demo repository’s Actions tab and enter the PR number. The required `Relay / merge gate` check runs a fresh suite against GitHub’s proposed merge commit. Branch protection also requires `Relay / CI` and an up-to-date branch, including for administrators. If the PR or base changes, update the branch and rerun the gate. The gate does not merge or deploy anything itself.
+
+Both workflows need the `RELAY_URL` repository variable and `RELAY_AUTOMATION_TOKEN` secret. The automation token can request runs and supersede obsolete work for that PR; it cannot register keys or manually stop arbitrary runs. The GitHub workflow token posts check results and stays out of test containers.
+
+GitHub’s native merge queue is available for organization-owned repositories, so this personal demo uses the explicit gate above. In an organization, trigger fresh CI on `merge_group` and make it a required check to have the queue schedule the final run automatically. See [GitHub’s merge queue documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue).
+
+The coordinator is part of the trusted system: Actions trusts its HTTPS verification response. A production GitHub App would provide installation identity and better key ownership than this small operator-token setup.
 
 ## Railway deployment
 
@@ -111,7 +117,7 @@ Create a second Railway project for runners so they do not share the dashboard's
 
 The worker fetches the exact commit, checks its tree, and runs the recipe as an unprivileged user with a clean environment. The privileged supervisor holds only a credential for that run's callbacks. It holds no Railway or GitHub token. Submodules are rejected; private repositories, LFS, privileged jobs, and secrets-dependent suites are outside this demo's scope.
 
-The suite has a 3 minute timeout, the worker a hard 8 minute exit, and the coordinator a 10 minute lease. SQLite reserves the single runner slot. Cleanup is retried and remains visible until Railway confirms removal. A deterministic service name allows recovery when a create response is lost or the coordinator restarts. Unknown services are not deleted; only Relay's UUID-named runners are managed.
+The suite has a 3 minute timeout, the worker a hard 8 minute exit, and the coordinator a 10 minute lease. SQLite reserves one physical runner slot and persists queued requests. Queued work expires after ten minutes; an allocated runner gets its own ten minute lease. Cleanup is retried and remains visible until Railway confirms removal. A deterministic service name allows recovery when a create response is lost or the coordinator restarts. Unknown services are not deleted; only Relay's UUID-named runners are managed.
 
 If the coordinator is down, a worker exits on its own but its service record remains until reconciliation resumes. This is a cooperative contributor demo, not a hardened sandbox for hostile code. Provider resource limits, egress controls, durable work queues, and stronger tenant isolation belong in a production version.
 
@@ -137,6 +143,6 @@ The provider interface is the seam for another compute backend. Receipt validati
 npm run ci
 ```
 
-Tests cover altered claims, changed trees and recipes, revoked and expired keys, concurrent starts, cancellation races, late callbacks, uncertain provisioning, cleanup retries, forced merge runs, and API authorization.
+Tests cover receipt uploads before push, source verification, revoked and expired keys, queued runs, PR supersession, changed merge bases, late callbacks, cleanup retries, fresh merge runs, API authorization, and failure reporting in GitHub.
 
 For the walkthrough: compare a local receipt with a Railway receipt, amend only the commit message to show reuse, change a source comment to show invalidation, then start and stop a fresh container. The interesting question is where to place the trust boundary, and which work actually needs to run again.

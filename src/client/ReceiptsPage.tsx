@@ -85,7 +85,10 @@ export const ReceiptsPage = ({
         <div className="panel-heading">
           <div>
             <h2>Receipt ledger</h2>
-            <p>A signature records who vouched for the run.</p>
+            <p>
+              A signature records who vouched for the run. Source matching is
+              checked when a commit is verified.
+            </p>
           </div>
           <Badge tone="neutral">{data?.receipts.length ?? 0} receipts</Badge>
         </div>

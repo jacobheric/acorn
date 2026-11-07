@@ -30,6 +30,7 @@ export const createCoordinator = (options: {
   const launching = new Set<string>();
   const cleaning = new Set<string>();
   let reconciling = false;
+  let scheduling = false;
   let providerError: string | null = null;
   const publicKey = privateKey
     ? createPublicKey(privateKey)
@@ -79,6 +80,7 @@ export const createCoordinator = (options: {
       store.updateRun(id, { cleanupError: (error as Error).message });
     } finally {
       cleaning.delete(id);
+      void drain();
     }
   };
   const finish = (
@@ -89,12 +91,15 @@ export const createCoordinator = (options: {
     const run = store.getRun(id);
     if (!run || run.outcome) return;
     store.updateRun(id, {
-      status: "stopping",
+      status: run.status === "queued" ? outcome : "stopping",
       outcome,
       error,
       finishedAt: new Date().toISOString(),
+      ...(run.status === "queued"
+        ? { cleanupAt: new Date().toISOString() }
+        : {}),
     });
-    void cleanup(id);
+    if (run.status !== "queued") void cleanup(id);
   };
   const launch = async (run: Run, token: string) => {
     launching.add(run.id);
@@ -111,9 +116,56 @@ export const createCoordinator = (options: {
       if (store.getRun(run.id)?.outcome) await cleanup(run.id);
     }
   };
-  const verify = async (commit: string): Promise<Verification> => {
+  const current = async (run: Run) => {
+    if (!run.pullRequest) return true;
+    if (
+      (await github.pullHead(run.pullRequest.number)) !== run.pullRequest.head
+    )
+      return false;
+    return (
+      !run.pullRequest.base ||
+      (await github.resolve("main")).sha === run.pullRequest.base
+    );
+  };
+  const drain = async () => {
+    if (scheduling || !provider.configured) return;
+    scheduling = true;
+    try {
+      while (
+        !store.runs().some((run) => isActive(run) && run.status !== "queued")
+      ) {
+        const next = store
+          .runs()
+          .filter((run) => run.status === "queued")
+          .at(-1);
+        if (!next) break;
+        if (!(await current(next))) {
+          finish(next.id, "cancelled", "Superseded by a newer PR head or base");
+          continue;
+        }
+        if (store.getRun(next.id)?.outcome) continue;
+        const token = randomBytes(32).toString("base64url");
+        const run = store.updateRun(next.id, {
+          status: "starting",
+          callbackHash: digest(token),
+          allocatedAt: new Date().toISOString(),
+        });
+        await launch(run, token);
+      }
+    } catch (error) {
+      providerError = (error as Error).message;
+    } finally {
+      scheduling = false;
+    }
+  };
+  const verify = async (
+    commit: string,
+    receiptId?: string,
+  ): Promise<Verification> => {
     const resolved = await github.resolve(commit);
-    const receipts = store.receiptsForTree(resolved.tree);
+    const receipts = store
+      .receiptsForTree(resolved.tree)
+      .filter((receipt) => !receiptId || receipt.id === receiptId);
     let reason = "No trusted receipt for this source tree";
     for (const receipt of receipts) {
       const signer = store
@@ -148,23 +200,25 @@ export const createCoordinator = (options: {
       reused: false,
     };
   };
-  const start = async (ref: string, reason: Run["reason"]) => {
+  const start = async (
+    ref: string,
+    reason: Run["reason"],
+    pullRequest?: Run["pullRequest"],
+  ) => {
     if (!provider.configured || !signerId)
       throw new Error("Railway runners are not configured");
     const resolved = await github.resolve(ref);
-    const existing = store.runs().find(isActive);
-    if (existing) {
-      if (
-        existing.commit === resolved.sha &&
-        existing.reason === reason &&
-        !existing.outcome
-      )
-        return existing;
-      throw new Error(
-        "A runner is already active. Stop it or wait for cleanup.",
-      );
-    }
-    const token = randomBytes(32).toString("base64url");
+    const active = store.runs().filter(isActive);
+    const existing = active.find(
+      (run) =>
+        run.commit === resolved.sha &&
+        run.reason === reason &&
+        run.pullRequest?.number === pullRequest?.number &&
+        !run.outcome,
+    );
+    if (existing) return existing;
+    if (active.length >= 50)
+      throw new Error("Runner queue is full. Try again later.");
     const run: Run = {
       id: randomUUID(),
       repository: recipe.repository,
@@ -174,6 +228,7 @@ export const createCoordinator = (options: {
       status: "queued",
       outcome: null,
       reason,
+      ...(pullRequest ? { pullRequest } : {}),
       createdAt: new Date().toISOString(),
       startedAt: null,
       finishedAt: null,
@@ -181,16 +236,52 @@ export const createCoordinator = (options: {
       deploymentId: null,
       cleanupAt: null,
       cleanupError: null,
-      callbackHash: digest(token),
+      callbackHash: "",
       receiptId: null,
       logs: "",
       error: null,
     };
     store.saveRun(run);
-    void launch(run, token);
+    void drain();
     return run;
   };
-  const complete = (
+  const requestRun = async (
+    ref: string,
+    reason: Run["reason"],
+    number?: number,
+  ) => {
+    if (number && (await github.pullHead(number)) !== ref)
+      throw new Error("This commit is no longer the PR head");
+    for (const run of store.runs().filter(isActive)) {
+      if (
+        number &&
+        run.pullRequest?.number === number &&
+        run.pullRequest.head !== ref
+      )
+        finish(run.id, "cancelled", "Superseded by a newer PR head");
+    }
+    if (reason === "fallback") {
+      const verification = await verify(ref);
+      if (verification.verified) return { reused: true as const, verification };
+    }
+    const merged =
+      number && reason === "firewall"
+        ? await github.mergeCandidate(number, ref)
+        : null;
+    const run = await start(
+      merged?.sha ?? ref,
+      reason,
+      number
+        ? {
+            number,
+            head: ref,
+            ...(merged ? { base: merged.base } : {}),
+          }
+        : undefined,
+    );
+    return { reused: false as const, run };
+  };
+  const complete = async (
     id: string,
     result: {
       tree: string;
@@ -203,7 +294,12 @@ export const createCoordinator = (options: {
   ) => {
     const run = store.getRun(id);
     if (!run || run.outcome) return;
-    if (Date.now() - Date.parse(run.createdAt) > runTtlMs) {
+    if (!(await current(run))) {
+      finish(id, "cancelled", "Superseded by a newer PR head or base");
+      return;
+    }
+    if (store.getRun(id)?.outcome) return;
+    if (Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) > runTtlMs) {
       finish(id, "timed_out", "Runner exceeded its 10 minute lease");
       return;
     }
@@ -258,13 +354,21 @@ export const createCoordinator = (options: {
     reconciling = true;
     try {
       for (const run of store.runs().filter(isActive)) {
-        if (!run.outcome && Date.now() - Date.parse(run.createdAt) > runTtlMs) {
+        if (
+          !run.outcome &&
+          Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) > runTtlMs
+        ) {
           finish(run.id, "timed_out", "Runner exceeded its 10 minute lease");
         }
       }
       const services = await provider.services();
       providerError = null;
       for (const run of store.runs().filter(isActive)) {
+        if (!run.outcome && !(await current(run))) {
+          finish(run.id, "cancelled", "Superseded by a newer PR head or base");
+          continue;
+        }
+        if (run.status === "queued") continue;
         const service = services.find(
           (candidate) =>
             candidate.id === run.serviceId ||
@@ -276,7 +380,10 @@ export const createCoordinator = (options: {
             deploymentId: service.deploymentId,
           });
         if (run.outcome) await cleanup(run.id);
-        else if (Date.now() - Date.parse(run.createdAt) > runTtlMs)
+        else if (
+          Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) >
+          runTtlMs
+        )
           finish(run.id, "timed_out", "Runner exceeded its 10 minute lease");
         else if (
           service?.status &&
@@ -287,7 +394,11 @@ export const createCoordinator = (options: {
             "failed",
             `Railway deployment ${service.status.toLowerCase()} before a result was accepted`,
           );
-        else if (!service && !launching.has(run.id))
+        else if (
+          !service &&
+          !launching.has(run.id) &&
+          Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) > 30_000
+        )
           finish(
             run.id,
             "failed",
@@ -303,10 +414,12 @@ export const createCoordinator = (options: {
       providerError = (error as Error).message;
     } finally {
       reconciling = false;
+      await drain();
     }
   };
   return {
     start,
+    requestRun,
     verify,
     complete,
     reconcile,

@@ -5,7 +5,12 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { shaSchema, type Recipe } from "../core/types.ts";
 
-type Commit = { sha: string; tree: string; message: string };
+type Commit = {
+  sha: string;
+  tree: string;
+  message: string;
+  parents?: string[];
+};
 const exec = promisify(execFile);
 export const resolvePublicGit = async (
   repository: string,
@@ -41,10 +46,14 @@ export const resolvePublicGit = async (
     const [sha, tree, message] = (
       await git("show", "--no-patch", "--format=%H%n%T%n%s", "FETCH_HEAD")
     ).split("\n");
+    const object = await git("cat-file", "-p", "FETCH_HEAD");
     return {
       sha: shaSchema.parse(sha),
       tree: shaSchema.parse(tree),
       message: (message ?? "").slice(0, 200),
+      parents: [...object.matchAll(/^parent ([a-f0-9]{40})$/gm)].map(
+        (match) => match[1],
+      ),
     };
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -102,5 +111,29 @@ export const createGithub = (
     }
     return result;
   };
-  return { resolve };
+  const pullHead = async (number: number) => {
+    if (!Number.isSafeInteger(number) || number < 1)
+      throw new Error("Invalid pull request");
+    return (await gitResolve(recipe.repository, `refs/pull/${number}/head`))
+      .sha;
+  };
+  const mergeCandidate = async (number: number, head: string) => {
+    if (!Number.isSafeInteger(number) || number < 1)
+      throw new Error("Invalid pull request");
+    const merged = await gitResolve(
+      recipe.repository,
+      `refs/pull/${number}/merge`,
+    );
+    const base = await resolve("main");
+    if (
+      merged.parents?.length !== 2 ||
+      merged.parents[0] !== base.sha ||
+      merged.parents[1] !== head
+    )
+      throw new Error(
+        "The proposed merge changed or is not ready. Update the branch and rerun the merge gate.",
+      );
+    return { ...merged, base: base.sha };
+  };
+  return { resolve, pullHead, mergeCandidate };
 };

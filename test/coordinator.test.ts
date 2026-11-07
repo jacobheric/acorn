@@ -44,6 +44,13 @@ const setup = () => {
     services: vi.fn(async () => services),
   };
   const github = {
+    pullHead: vi.fn(async (_number: number) => "a".repeat(40)),
+    mergeCandidate: vi.fn(async (_number: number, _head: string) => ({
+      sha: "d".repeat(40),
+      tree: "b".repeat(40),
+      message: "Merge PR",
+      base: "a".repeat(40),
+    })),
     resolve: vi.fn(async (commit: string) => ({
       sha: commit === "main" ? "a".repeat(40) : commit,
       tree: "b".repeat(40),
@@ -75,15 +82,114 @@ const settle = async () => {
 };
 
 describe("container lifecycle", () => {
+  it("starts queued work after the preceding container is removed", async () => {
+    const { coordinator, provider, store } = setup();
+    const first = await coordinator.start("a".repeat(40), "manual");
+    const second = await coordinator.start("c".repeat(40), "manual");
+    await settle();
+    expect(store.getRun(second.id)?.status).toBe("queued");
+    coordinator.stop(first.id);
+    await settle();
+    expect(store.getRun(first.id)?.cleanupAt).toBeTruthy();
+    expect(store.getRun(second.id)?.status).toBe("starting");
+    expect(provider.create).toHaveBeenCalledTimes(2);
+  });
+  it("cancels superseded PR work without cancelling a different PR", async () => {
+    const { coordinator, github, store } = setup();
+    const first = await coordinator.requestRun("a".repeat(40), "fallback", 1);
+    const other = await coordinator.requestRun("a".repeat(40), "fallback", 2);
+    await settle();
+    github.pullHead.mockImplementation(async (number) =>
+      (number === 1 ? "c" : "a").repeat(40),
+    );
+    const latest = await coordinator.requestRun("c".repeat(40), "fallback", 1);
+    await settle();
+    if (first.reused || other.reused || latest.reused)
+      throw new Error("Expected remote runs");
+    expect(store.getRun(first.run.id)?.outcome).toBe("cancelled");
+    expect(store.getRun(other.run.id)?.outcome).toBeNull();
+    expect(store.getRun(latest.run.id)?.outcome).toBeNull();
+  });
+  it("rejects a delayed workflow for an old PR head", async () => {
+    const { coordinator, provider } = setup();
+    await expect(
+      coordinator.requestRun("c".repeat(40), "fallback", 1),
+    ).rejects.toThrow("no longer");
+    expect(provider.create).not.toHaveBeenCalled();
+  });
+  it("reconciles obsolete PR runners even if the replacement workflow never starts", async () => {
+    const { coordinator, github, store } = setup();
+    const first = await coordinator.requestRun("a".repeat(40), "fallback", 1);
+    await settle();
+    github.pullHead.mockResolvedValue("c".repeat(40));
+    await coordinator.reconcile();
+    await settle();
+    if (first.reused) throw new Error("Expected remote run");
+    expect(store.getRun(first.run.id)?.outcome).toBe("cancelled");
+    expect(store.getRun(first.run.id)?.cleanupAt).toBeTruthy();
+  });
+  it("tests the proposed merge and rejects completion after its base changes", async () => {
+    const { coordinator, github, store } = setup();
+    const result = await coordinator.requestRun("a".repeat(40), "firewall", 1);
+    await settle();
+    if (result.reused) throw new Error("Merge gates must run CI");
+    expect(result.run.commit).toBe("d".repeat(40));
+    expect(result.run.pullRequest).toEqual({
+      number: 1,
+      head: "a".repeat(40),
+      base: "a".repeat(40),
+    });
+    github.resolve.mockResolvedValue({
+      sha: "e".repeat(40),
+      tree: "b".repeat(40),
+      message: "New base",
+    });
+    const time = new Date().toISOString();
+    await coordinator.complete(result.run.id, {
+      tree: result.run.tree,
+      output: "pass",
+      logDigest: digest("pass"),
+      exitCode: 0,
+      startedAt: time,
+      finishedAt: time,
+    });
+    await settle();
+    expect(store.getRun(result.run.id)?.outcome).toBe("cancelled");
+    expect(store.receipts()).toHaveLength(0);
+  });
+  it("still supersedes a runner when the new head already has a receipt", async () => {
+    const { coordinator, store, github } = setup();
+    const completed = await coordinator.start("main", "manual");
+    await settle();
+    const time = new Date().toISOString();
+    await coordinator.complete(completed.id, {
+      tree: completed.tree,
+      output: "pass",
+      logDigest: digest("pass"),
+      exitCode: 0,
+      startedAt: time,
+      finishedAt: time,
+    });
+    await settle();
+    const running = await coordinator.requestRun("a".repeat(40), "firewall", 1);
+    await settle();
+    github.pullHead.mockResolvedValue("c".repeat(40));
+    const next = await coordinator.requestRun("c".repeat(40), "fallback", 1);
+    await settle();
+    expect(next.reused).toBe(true);
+    if (running.reused) throw new Error("Expected merge run");
+    expect(store.getRun(running.run.id)?.outcome).toBe("cancelled");
+  });
   it("does not accept a result after the lease expires", async () => {
     const { coordinator, store } = setup();
     const run = await coordinator.start("main", "manual");
     await settle();
     store.updateRun(run.id, {
       createdAt: new Date(Date.now() - 700_000).toISOString(),
+      allocatedAt: new Date(Date.now() - 700_000).toISOString(),
     });
     const time = new Date().toISOString();
-    coordinator.complete(run.id, {
+    await coordinator.complete(run.id, {
       tree: run.tree,
       output: "",
       logDigest: digest(""),
@@ -95,7 +201,7 @@ describe("container lifecycle", () => {
     expect(store.receipts()).toHaveLength(0);
     expect(store.getRun(run.id)?.status).toBe("timed_out");
   });
-  it("reserves a single runner slot before provisioning", async () => {
+  it("queues concurrent requests while reserving one physical runner", async () => {
     const { coordinator, store } = setup();
     const results = await Promise.allSettled([
       coordinator.start("a".repeat(40), "manual"),
@@ -103,8 +209,14 @@ describe("container lifecycle", () => {
     ]);
     expect(
       results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(2);
+    expect(store.runs()).toHaveLength(2);
+    expect(
+      store.runs().filter((run) => run.status === "starting"),
     ).toHaveLength(1);
-    expect(store.runs()).toHaveLength(1);
+    expect(store.runs().filter((run) => run.status === "queued")).toHaveLength(
+      1,
+    );
     await settle();
   });
   it("deduplicates repeated starts for the same commit and purpose", async () => {
@@ -120,7 +232,7 @@ describe("container lifecycle", () => {
     const run = await coordinator.start("main", "manual");
     await settle();
     const time = new Date().toISOString();
-    coordinator.complete(run.id, {
+    await coordinator.complete(run.id, {
       tree: run.tree,
       output: "10 tests passed",
       logDigest: digest("10 tests passed"),
@@ -141,7 +253,7 @@ describe("container lifecycle", () => {
     const run = await coordinator.start("main", "manual");
     await settle();
     const time = new Date().toISOString();
-    coordinator.complete(run.id, {
+    await coordinator.complete(run.id, {
       tree: run.tree,
       output: "failure",
       logDigest: digest("failure"),
@@ -159,7 +271,7 @@ describe("container lifecycle", () => {
     await settle();
     coordinator.stop(run.id);
     const time = new Date().toISOString();
-    coordinator.complete(run.id, {
+    await coordinator.complete(run.id, {
       tree: run.tree,
       output: "",
       logDigest: digest(""),
@@ -181,6 +293,7 @@ describe("container lifecycle", () => {
         }),
     );
     const run = await coordinator.start("main", "manual");
+    await settle();
     coordinator.stop(run.id);
     resolveCreate("late-service");
     await settle();
@@ -220,6 +333,7 @@ describe("container lifecycle", () => {
     await settle();
     store.updateRun(run.id, {
       createdAt: new Date(Date.now() - 700_000).toISOString(),
+      allocatedAt: new Date(Date.now() - 700_000).toISOString(),
     });
     await coordinator.reconcile();
     await settle();
@@ -230,7 +344,7 @@ describe("container lifecycle", () => {
     const run = await coordinator.start("main", "manual");
     await settle();
     const time = new Date().toISOString();
-    coordinator.complete(run.id, {
+    await coordinator.complete(run.id, {
       tree: run.tree,
       output: "",
       logDigest: digest(""),
@@ -319,7 +433,7 @@ describe("HTTP trust boundary", () => {
       ).status,
     ).toBe(403);
   });
-  it("accepts a signed local receipt only when GitHub confirms the tree", async () => {
+  it("accepts receipts before push but requires GitHub source verification before reuse", async () => {
     const { app, store, github } = setup();
     const local = generateKeyPairSync("ed25519", {
       publicKeyEncoding: { type: "spki", format: "pem" },
@@ -355,23 +469,62 @@ describe("HTTP trust boundary", () => {
         })
       ).status,
     ).toBe(201);
+    expect(github.resolve).not.toHaveBeenCalled();
+    github.resolve.mockRejectedValueOnce(
+      new Error("Commit has not been pushed"),
+    );
+    expect(
+      (await app.request(`/api/verify?commit=${claim.commit}`)).status,
+    ).toBe(400);
     github.resolve.mockResolvedValueOnce({
       sha: claim.commit,
       tree: "c".repeat(40),
       message: "changed",
     });
     expect(
-      (
-        await app.request("/api/receipts", {
-          method: "POST",
-          body: JSON.stringify(receipt),
-        })
-      ).status,
-    ).toBe(400);
+      await (await app.request(`/api/verify?commit=${claim.commit}`)).json(),
+    ).toMatchObject({ verified: false });
+    expect(
+      await (await app.request(`/api/verify?commit=${claim.commit}`)).json(),
+    ).toMatchObject({ verified: true });
   });
 });
 
 describe("GitHub source resolution", () => {
+  it("accepts only a merge candidate with the current base and requested head", async () => {
+    const base = "a".repeat(40);
+    const head = "c".repeat(40);
+    const merged = {
+      sha: "d".repeat(40),
+      tree: "b".repeat(40),
+      message: "Merge",
+      parents: [base, head],
+    };
+    const git = vi.fn(async () => merged);
+    const github = createGithub(
+      recipe,
+      "",
+      async () =>
+        new Response(
+          JSON.stringify({
+            sha: base,
+            commit: { tree: { sha: "b".repeat(40) }, message: "Base" },
+          }),
+        ),
+      git,
+    );
+    expect(await github.mergeCandidate(1, head)).toMatchObject({
+      sha: merged.sha,
+      base,
+    });
+    await expect(github.mergeCandidate(1, "e".repeat(40))).rejects.toThrow(
+      "proposed merge changed",
+    );
+    git.mockResolvedValue({ ...merged, parents: ["f".repeat(40), head] });
+    await expect(github.mergeCandidate(1, head)).rejects.toThrow(
+      "proposed merge changed",
+    );
+  });
   it("falls back to public Git when the API is rate limited", async () => {
     const commit = {
       sha: "a".repeat(40),

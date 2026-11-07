@@ -128,9 +128,9 @@ export const createApp = ({
       recipeDigest,
       configured: Boolean(
         config.railwayToken &&
-        config.projectId &&
-        config.environmentId &&
-        config.privateKey,
+          config.projectId &&
+          config.environmentId &&
+          config.privateKey,
       ),
       providerError: coordinator.providerError(),
       repository: recipe.repository,
@@ -158,7 +158,8 @@ export const createApp = ({
         429,
       );
     const commit = shaSchema.parse(c.req.query("commit"));
-    return c.json(await coordinator.verify(commit));
+    const receipt = digestSchema.optional().parse(c.req.query("receipt"));
+    return c.json(await coordinator.verify(commit, receipt));
   });
   app.get("/api/runs/:id", (c) => {
     const run = store.getRun(c.req.param("id"));
@@ -171,15 +172,18 @@ export const createApp = ({
       .object({
         commit: z.union([shaSchema, z.literal("main")]),
         reason: z.enum(["manual", "fallback", "firewall"]).default("manual"),
+        pullRequest: z.number().int().positive().optional(),
       })
       .strict()
       .parse(await c.req.json());
-    if (input.reason === "fallback") {
-      const verification = await coordinator.verify(input.commit);
-      if (verification.verified) return c.json({ reused: true, verification });
-    }
-    const run = await coordinator.start(input.commit, input.reason);
-    return c.json({ reused: false, run: publicRun(run) }, 202);
+    const result = await coordinator.requestRun(
+      input.commit,
+      input.reason,
+      input.pullRequest,
+    );
+    return result.reused
+      ? c.json(result)
+      : c.json({ ...result, run: publicRun(result.run) }, 202);
   });
   app.post("/api/runs/:id/stop", (c) => {
     const id = c.req.param("id");
@@ -245,15 +249,6 @@ export const createApp = ({
       recipeDigest,
     });
     if (!result.valid) return c.json({ error: result.reason }, 400);
-    const resolved = await github.resolve(receipt.claim.commit);
-    if (resolved.tree !== receipt.claim.tree)
-      return c.json(
-        {
-          error:
-            "GitHub source tree does not match the receipt. Push the tested commit first.",
-        },
-        400,
-      );
     const stored = store.saveReceipt({
       ...receipt,
       id: objectDigest(receipt),
@@ -271,7 +266,11 @@ export const createApp = ({
   });
   app.get("/api/internal/runs/:id", (c) => {
     const run = store.getRun(c.req.param("id"))!;
-    if (run.outcome || Date.now() - Date.parse(run.createdAt) > config.runTtlMs)
+    if (
+      run.outcome ||
+      Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) >
+        config.runTtlMs
+    )
       return c.json({ error: "Run is no longer active" }, 409);
     return c.json({ recipe, commit: run.commit, tree: run.tree });
   });
@@ -285,7 +284,7 @@ export const createApp = ({
     return c.json({ ok: true });
   });
   app.post("/api/internal/runs/:id/complete", async (c) => {
-    coordinator.complete(
+    await coordinator.complete(
       c.req.param("id"),
       resultSchema.parse(await c.req.json()),
     );

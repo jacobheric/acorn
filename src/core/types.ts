@@ -74,6 +74,8 @@ export type Run = {
   status: RunStatus;
   outcome: "passed" | "failed" | "cancelled" | "timed_out" | null;
   reason: "manual" | "fallback" | "firewall";
+  pullRequest?: { number: number; head: string; base?: string };
+  allocatedAt?: string;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;

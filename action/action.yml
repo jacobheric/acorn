@@ -9,7 +9,9 @@ inputs:
     required: true
   mode:
     description: verify, fallback, or firewall
-    default: verify
+    default: fallback
+  pull-request:
+    description: PR number for supersession and testing the proposed merge result
   token:
     description: Scoped Relay automation token; required for fallback and firewall
   github-token:
@@ -23,6 +25,7 @@ runs:
         RELAY_URL: ${{ inputs.url }}
         RELAY_COMMIT: ${{ inputs.commit }}
         RELAY_MODE: ${{ inputs.mode }}
+        RELAY_PULL_REQUEST: ${{ inputs.pull-request }}
         RELAY_TOKEN: ${{ inputs.token }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: node "$GITHUB_ACTION_PATH/run.mjs"
