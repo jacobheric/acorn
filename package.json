@@ -1,5 +1,5 @@
 {
-  "name": "relay-ci",
+  "name": "acorn-ci",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "ci": "npm run check && npm test && npm run build",
-    "relay": "tsx --env-file-if-exists=.env cli/index.ts"
+    "acorn": "tsx --env-file-if-exists=.env cli/index.ts"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.3.0",

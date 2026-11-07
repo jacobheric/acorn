@@ -25,7 +25,7 @@ const signer: Signer = {
 };
 const claim: Claim = {
   version: 1,
-  repository: "jacobheric/railway-demo",
+  repository: "jacobheric/acorn-demo",
   commit: "a".repeat(40),
   tree: "b".repeat(40),
   recipeDigest: digest("recipe"),

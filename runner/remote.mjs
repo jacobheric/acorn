@@ -1,5 +1,5 @@
-const base = `${process.env.RELAY_URL}/api/internal/runs/${process.env.RELAY_RUN_ID}`;
-const callbackToken = process.env.RELAY_CALLBACK_TOKEN;
+const base = `${process.env.ACORN_URL}/api/internal/runs/${process.env.ACORN_RUN_ID}`;
+const callbackToken = process.env.ACORN_CALLBACK_TOKEN;
 const headers = { Authorization: `Bearer ${callbackToken}`, 'Content-Type': 'application/json' };
 const call = async (path, body) => {
   for (let attempt = 0; attempt < 3; attempt++) {

@@ -10,7 +10,7 @@ const variables = {
   AUTOMATION_TOKEN: randomBytes(32).toString("base64url"),
   RECEIPT_PRIVATE_KEY: privateKey.replace(/\n/g, "\\n"),
   PUBLIC_URL: "http://localhost:3000",
-  DATABASE_PATH: "./data/relay.sqlite",
+  DATABASE_PATH: "./data/acorn.sqlite",
 };
 await writeFile(
   ".env",

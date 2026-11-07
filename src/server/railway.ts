@@ -100,9 +100,9 @@ export const createRailway = (
           serviceId,
           skipDeploys: true,
           variables: {
-            RELAY_URL: publicUrl,
-            RELAY_RUN_ID: runId,
-            RELAY_CALLBACK_TOKEN: callbackToken,
+            ACORN_URL: publicUrl,
+            ACORN_RUN_ID: runId,
+            ACORN_CALLBACK_TOKEN: callbackToken,
           },
         },
       });

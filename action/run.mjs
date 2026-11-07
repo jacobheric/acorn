@@ -7,30 +7,30 @@ export const runAction = async (
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 ) => {
   const {
-    RELAY_URL,
-    RELAY_COMMIT,
-    RELAY_MODE = "fallback",
-    RELAY_TOKEN,
-    RELAY_PULL_REQUEST,
+    ACORN_URL,
+    ACORN_COMMIT,
+    ACORN_MODE = "fallback",
+    ACORN_TOKEN,
+    ACORN_PULL_REQUEST,
     GH_TOKEN,
     GITHUB_REPOSITORY,
     GITHUB_STEP_SUMMARY,
   } = env;
-  if (!RELAY_URL || new URL(RELAY_URL).protocol !== "https:")
-    throw new Error("Set a HTTPS Relay URL");
-  if (!/^[a-f0-9]{40}$/.test(RELAY_COMMIT ?? ""))
+  if (!ACORN_URL || new URL(ACORN_URL).protocol !== "https:")
+    throw new Error("Set a HTTPS Acorn URL");
+  if (!/^[a-f0-9]{40}$/.test(ACORN_COMMIT ?? ""))
     throw new Error("Provide a full commit SHA");
-  if (!["verify", "fallback", "firewall"].includes(RELAY_MODE))
+  if (!["verify", "fallback", "firewall"].includes(ACORN_MODE))
     throw new Error("Unknown mode");
-  const pullRequest = RELAY_PULL_REQUEST
-    ? Number(RELAY_PULL_REQUEST)
+  const pullRequest = ACORN_PULL_REQUEST
+    ? Number(ACORN_PULL_REQUEST)
     : undefined;
   if (
     pullRequest !== undefined &&
     (!Number.isSafeInteger(pullRequest) || pullRequest < 1)
   )
     throw new Error("Invalid pull request number");
-  const base = RELAY_URL.replace(/\/$/, "");
+  const base = ACORN_URL.replace(/\/$/, "");
   const json = async (url, options) => {
     const response = await request(url, {
       ...options,
@@ -41,13 +41,13 @@ export const runAction = async (
       throw new Error(data.error ?? data.message ?? `HTTP ${response.status}`);
     return data;
   };
-  const relay = (path, body) =>
+  const acorn = (path, body) =>
     json(`${base}/api${path}`, {
       method: body ? "POST" : "GET",
       headers: {
         "Content-Type": "application/json",
-        ...(body && RELAY_TOKEN
-          ? { Authorization: `Bearer ${RELAY_TOKEN}` }
+        ...(body && ACORN_TOKEN
+          ? { Authorization: `Bearer ${ACORN_TOKEN}` }
           : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -64,8 +64,8 @@ export const runAction = async (
       body: body ? JSON.stringify(body) : undefined,
     });
   const check = await github("/check-runs", {
-    name: RELAY_MODE === "firewall" ? "Relay / merge gate" : "Relay / CI",
-    head_sha: RELAY_COMMIT,
+    name: ACORN_MODE === "firewall" ? "Acorn / merge gate" : "Acorn / CI",
+    head_sha: ACORN_COMMIT,
     status: "in_progress",
     details_url: base,
   });
@@ -91,7 +91,7 @@ export const runAction = async (
     void writeCheck(
       "cancelled",
       "Superseded or cancelled",
-      "This workflow was cancelled. Relay stops superseded PR runners independently.",
+      "This workflow was cancelled. Acorn stops superseded PR runners independently.",
     ).finally(() => process.exit(130));
   };
   process.once("SIGINT", cancelled);
@@ -102,7 +102,7 @@ export const runAction = async (
       const pr = await github(`/pulls/${pullRequest}`);
       if (
         pr.state !== "open" ||
-        pr.head.sha !== RELAY_COMMIT ||
+        pr.head.sha !== ACORN_COMMIT ||
         (run?.pullRequest?.base && pr.base.sha !== run.pullRequest.base)
       )
         throw new Error(
@@ -111,13 +111,13 @@ export const runAction = async (
     };
     await assertCurrent();
     let verification;
-    if (RELAY_MODE === "verify") {
-      verification = await relay(`/verify?commit=${RELAY_COMMIT}`);
+    if (ACORN_MODE === "verify") {
+      verification = await acorn(`/verify?commit=${ACORN_COMMIT}`);
     } else {
-      if (!RELAY_TOKEN) throw new Error("Set RELAY_AUTOMATION_TOKEN");
-      const started = await relay("/runs", {
-        commit: RELAY_COMMIT,
-        reason: RELAY_MODE,
+      if (!ACORN_TOKEN) throw new Error("Set ACORN_AUTOMATION_TOKEN");
+      const started = await acorn("/runs", {
+        commit: ACORN_COMMIT,
+        reason: ACORN_MODE,
         ...(pullRequest ? { pullRequest } : {}),
       });
       if (started.reused) verification = started.verification;
@@ -129,13 +129,13 @@ export const runAction = async (
           Date.now() < deadline
         ) {
           await wait(5_000);
-          run = await relay(`/runs/${run.id}`);
+          run = await acorn(`/runs/${run.id}`);
         }
         if (run.status !== "passed")
           throw new Error(
             `CI ${run.status}: ${run.error ?? run.cleanupError ?? "No passing result"}`,
           );
-        verification = await relay(
+        verification = await acorn(
           `/verify?commit=${run.commit}&receipt=${run.receiptId}`,
         );
         if (verification.receipt?.runId !== run.id)
@@ -146,7 +146,7 @@ export const runAction = async (
       throw new Error(verification?.reason ?? "No trusted receipt");
     await assertCurrent();
     const title =
-      RELAY_MODE === "firewall"
+      ACORN_MODE === "firewall"
         ? "Full CI passed before merge"
         : run
           ? "Remote CI passed"
@@ -154,7 +154,7 @@ export const runAction = async (
     const summary = [
       `**${title}.**`,
       "",
-      `- PR commit: \`${RELAY_COMMIT}\``,
+      `- PR commit: \`${ACORN_COMMIT}\``,
       `- Tested commit: \`${verification.commit}\``,
       `- Source tree: \`${verification.tree}\``,
       `- Recipe: \`${verification.recipeDigest}\``,
@@ -167,7 +167,7 @@ export const runAction = async (
         ? [`- Container: ${run.cleanupAt ? "removed" : "cleanup pending"}`]
         : []),
       "",
-      `[Inspect the result in Relay](${base})`,
+      `[Inspect the result in Acorn](${base})`,
     ].join("\n");
     await writeCheck("success", title, summary);
     console.log(title);
@@ -178,7 +178,7 @@ export const runAction = async (
     await writeCheck(
       superseded ? "cancelled" : "failure",
       superseded ? "Superseded by a newer change" : "CI did not pass",
-      `${error.message}\n\n[Inspect the result in Relay](${base})`,
+      `${error.message}\n\n[Inspect the result in Acorn](${base})`,
     );
     throw error;
   } finally {

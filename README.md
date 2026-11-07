@@ -1,10 +1,12 @@
-# Relay
+<img src="public/favicon.svg" width="48" height="48" alt="Acorn logo" />
+
+# Acorn
 
 Assert CI anywhere. Respect it everywhere.
 
-Relay lets a trusted developer run CI on their laptop or in their agent's compute, sign the result, and ship that result with the pull request. A GitHub Actions workflow asks Relay to verify the receipt. Without one, CI runs automatically on Railway. For this, Relay starts a container through Railway's GraphQL API, runs CI, and removes the container. As a final check, a full CI run is required before a PR can merge.
+Acorn lets a trusted developer run CI on their laptop or in their agent's compute, sign the result, and ship that result with the pull request. A GitHub Actions workflow asks Acorn to verify the receipt. Without one, CI runs automatically on Railway. For this, Acorn starts a container through Railway's GraphQL API, runs CI, and removes the container. As a final check, a full CI run is required before a PR can merge.
 
-[Live dashboard](https://relay-production-f406.up.railway.app) · [Demo repository](https://github.com/jacobheric/railway-demo)
+[Live dashboard](https://acorn-production-f406.up.railway.app) · [Demo repository](https://github.com/jacobheric/acorn-demo)
 
 ## Why
 
@@ -12,7 +14,7 @@ At the rate agents write code and push changes to PRs, running large CI suites o
 
 ## Try it
 
-The dashboard is publicly readable. **Unlock runner controls** accepts the `ADMIN_TOKEN` configured on the Railway `relay` service.
+The dashboard is publicly readable. **Unlock runner controls** accepts the `ADMIN_TOKEN` configured on the Railway `acorn` service.
 
 1. Leave the ref at `main` and choose **Spin up runner**.
 2. Watch provisioning, execution, the result, and container removal.
@@ -40,23 +42,23 @@ For UI development, run `npm run dev` and `npm run dev:ui` in separate terminals
 ## Run CI before pushing
 
 ```sh
-export RELAY_URL=https://relay-production-f406.up.railway.app
-npm run relay -- keygen
+export ACORN_URL=https://acorn-production-f406.up.railway.app
+npm run acorn -- keygen
 
-export RELAY_ADMIN_TOKEN=<operator-token>
-npm run relay -- register --label "My laptop"
-unset RELAY_ADMIN_TOKEN
+export ACORN_ADMIN_TOKEN=<operator-token>
+npm run acorn -- register --label "My laptop"
+unset ACORN_ADMIN_TOKEN
 
-npm run relay -- run --repo ../railway-demo
-npm run relay -- publish /path/printed/by/the/run.json
-git -C ../railway-demo push
+npm run acorn -- run --repo ../acorn-demo
+npm run acorn -- publish /path/printed/by/the/run.json
+git -C ../acorn-demo push
 ```
 
 Commit changes before running. The CLI rejects a dirty working tree, exports the committed snapshot, and tests it in the exact Linux image configured by the coordinator. It signs only a successful result. Neither the device key nor the operator token enters the test container.
 
-Publish before pushing. Relay validates the signature when you upload, then checks the actual GitHub source tree when the PR workflow requests verification. If you skip local CI, push normally: Relay starts remote CI immediately.
+Publish before pushing. Acorn validates the signature when you upload, then checks the actual GitHub source tree when the PR workflow requests verification. If you skip local CI, push normally: Acorn starts remote CI immediately.
 
-Keys default to `~/.config/relay/key.pem`. Use `--key` to choose another path, `--out` to choose the receipt path, and `--server` to override `RELAY_URL`.
+Keys default to `~/.config/acorn/key.pem`. Use `--key` to choose another path, `--out` to choose the receipt path, and `--server` to override `ACORN_URL`.
 
 ## What is trusted
 
@@ -82,11 +84,11 @@ The merge gate tests **GitHub’s proposed merge commit before merging**, includ
 
 The demo’s **PR CI** workflow runs on PR creation and updates using `fallback`. It uses `pull_request_target` and a pinned action from this repository. The privileged job never checks out or executes PR code; tests run in the disposable container. Each PR has its own GitHub concurrency group with cancellation enabled.
 
-A new PR head supersedes older work. Relay cancels and removes the old container, even if GitHub has already killed the waiting workflow. Its periodic reconciliation also checks PR heads independently. Different PRs wait in a persistent queue for the single physical runner. Delayed workflows for obsolete heads cannot start CI; late callbacks cannot create passing results after cancellation.
+A new PR head supersedes older work. Acorn cancels and removes the old container, even if GitHub has already killed the waiting workflow. Its periodic reconciliation also checks PR heads independently. Different PRs wait in a persistent queue for the single physical runner. Delayed workflows for obsolete heads cannot start CI; late callbacks cannot create passing results after cancellation.
 
-When a PR is ready, run **Run merge gate** from the demo repository’s Actions tab and enter the PR number. The required `Relay / merge gate` check runs a fresh suite against GitHub’s proposed merge commit. Branch protection also requires `Relay / CI` and an up-to-date branch, including for administrators. If the PR or base changes, update the branch and rerun the gate. The gate does not merge or deploy anything itself.
+When a PR is ready, run **Run merge gate** from the demo repository’s Actions tab and enter the PR number. The required `Acorn / merge gate` check runs a fresh suite against GitHub’s proposed merge commit. Branch protection also requires `Acorn / CI` and an up-to-date branch, including for administrators. If the PR or base changes, update the branch and rerun the gate. The gate does not merge or deploy anything itself.
 
-Both workflows need the `RELAY_URL` repository variable and `RELAY_AUTOMATION_TOKEN` secret. The automation token can request runs and supersede obsolete work for that PR; it cannot register keys or manually stop arbitrary runs. The GitHub workflow token posts check results and stays out of test containers.
+Both workflows need the `ACORN_URL` repository variable and `ACORN_AUTOMATION_TOKEN` secret. The automation token can request runs and supersede obsolete work for that PR; it cannot register keys or manually stop arbitrary runs. The GitHub workflow token posts check results and stays out of test containers.
 
 GitHub’s native merge queue is available for organization-owned repositories, so this personal demo uses the explicit gate above. In an organization, trigger fresh CI on `merge_group` and make it a required check to have the queue schedule the final run automatically. See [GitHub’s merge queue documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue).
 
@@ -101,21 +103,21 @@ Create a second Railway project for runners so they do not share the dashboard's
 | Variable                | Purpose                                                                          |
 | ----------------------- | -------------------------------------------------------------------------------- |
 | `PUBLIC_URL`            | Public HTTPS dashboard URL; used by runner callbacks.                            |
-| `DATABASE_PATH`         | `/data/relay.sqlite`; attach a volume at `/data`.                                |
+| `DATABASE_PATH`         | `/data/acorn.sqlite`; attach a volume at `/data`.                                |
 | `ADMIN_TOKEN`           | Operator access to compute and trusted devices.                                  |
 | `AUTOMATION_TOKEN`      | GitHub's scoped run-request credential.                                          |
 | `RECEIPT_PRIVATE_KEY`   | Ed25519 coordinator key; PEM or escaped newlines.                                |
 | `RAILWAY_API_TOKEN`     | Runner project token.                                                            |
 | `RUNNER_PROJECT_ID`     | Project that owns disposable runners.                                            |
 | `RUNNER_ENVIRONMENT_ID` | Environment authorized by that token.                                            |
-| `DEMO_REPOSITORY`       | Optional; defaults to `jacobheric/railway-demo`.                                 |
+| `DEMO_REPOSITORY`       | Optional; defaults to `jacobheric/acorn-demo`.                                 |
 | `GITHUB_READ_TOKEN`     | Optional read-only token. Public Git is used if the API rate limits the request. |
 
 `src/server/railway.ts` calls the [Railway GraphQL API](https://docs.railway.com/integrations/api) directly, with `Project-Access-Token` authentication. It creates an empty service, configures the pinned image and restart policy, sets a per-run callback credential, and deploys it. Stopping removes the disposable service and its deployment with `serviceDelete`.
 
 The worker fetches the exact commit, checks its tree, and runs the recipe as an unprivileged user with a clean environment. The privileged supervisor holds only a credential for that run's callbacks. It holds no Railway or GitHub token. Submodules are rejected; private repositories, LFS, privileged jobs, and secrets-dependent suites are outside this demo's scope.
 
-The suite has a 3 minute timeout, the worker a hard 8 minute exit, and the coordinator a 10 minute lease. SQLite reserves one physical runner slot and persists queued requests. Queued work expires after ten minutes; an allocated runner gets its own ten minute lease. Cleanup is retried and remains visible until Railway confirms removal. A deterministic service name allows recovery when a create response is lost or the coordinator restarts. Unknown services are not deleted; only Relay's UUID-named runners are managed.
+The suite has a 3 minute timeout, the worker a hard 8 minute exit, and the coordinator a 10 minute lease. SQLite reserves one physical runner slot and persists queued requests. Queued work expires after ten minutes; an allocated runner gets its own ten minute lease. Cleanup is retried and remains visible until Railway confirms removal. A deterministic service name allows recovery when a create response is lost or the coordinator restarts. Unknown services are not deleted; only Acorn's UUID-named runners are managed.
 
 If the coordinator is down, a worker exits on its own but its service record remains until reconciliation resumes. This is a cooperative contributor demo, not a hardened sandbox for hostile code. Provider resource limits, egress controls, durable work queues, and stronger tenant isolation belong in a production version.
 

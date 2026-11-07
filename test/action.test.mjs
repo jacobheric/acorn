@@ -5,13 +5,13 @@ const head = "a".repeat(40);
 const merge = "b".repeat(40);
 const base = "c".repeat(40);
 const env = {
-  RELAY_URL: "https://relay.example",
-  RELAY_COMMIT: head,
-  RELAY_MODE: "fallback",
-  RELAY_TOKEN: "automation",
+  ACORN_URL: "https://acorn.example",
+  ACORN_COMMIT: head,
+  ACORN_MODE: "fallback",
+  ACORN_TOKEN: "automation",
   GH_TOKEN: "github",
   GITHUB_REPOSITORY: "owner/repo",
-  RELAY_PULL_REQUEST: "1",
+  ACORN_PULL_REQUEST: "1",
 };
 const receipt = { id: "receipt", runId: "run" };
 const verification = {
@@ -91,7 +91,7 @@ describe("GitHub action", () => {
   it("verifies the merge run's own receipt and includes the tested merge SHA", async () => {
     const { request, checks } = fixture();
     await runAction(
-      { ...env, RELAY_MODE: "firewall" },
+      { ...env, ACORN_MODE: "firewall" },
       request,
       async () => {},
     );
@@ -108,7 +108,7 @@ describe("GitHub action", () => {
   it("cannot pass a merge gate using a different run's receipt", async () => {
     const { request, checks } = fixture({ wrongReceipt: true });
     await expect(
-      runAction({ ...env, RELAY_MODE: "firewall" }, request, async () => {}),
+      runAction({ ...env, ACORN_MODE: "firewall" }, request, async () => {}),
     ).rejects.toThrow("own verified receipt");
     expect(checks.at(-1).conclusion).toBe("failure");
   });

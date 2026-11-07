@@ -1,8 +1,8 @@
-name: Relay CI
+name: Acorn CI
 description: Verify a signed CI receipt or request a disposable Railway runner.
 inputs:
   url:
-    description: Relay coordinator URL
+    description: Acorn coordinator URL
     required: true
   commit:
     description: Exact commit SHA to check
@@ -13,7 +13,7 @@ inputs:
   pull-request:
     description: PR number for supersession and testing the proposed merge result
   token:
-    description: Scoped Relay automation token; required for fallback and firewall
+    description: Scoped Acorn automation token; required for fallback and firewall
   github-token:
     description: GitHub token with checks write access
     default: ${{ github.token }}
@@ -22,10 +22,10 @@ runs:
   steps:
     - shell: bash
       env:
-        RELAY_URL: ${{ inputs.url }}
-        RELAY_COMMIT: ${{ inputs.commit }}
-        RELAY_MODE: ${{ inputs.mode }}
-        RELAY_PULL_REQUEST: ${{ inputs.pull-request }}
-        RELAY_TOKEN: ${{ inputs.token }}
+        ACORN_URL: ${{ inputs.url }}
+        ACORN_COMMIT: ${{ inputs.commit }}
+        ACORN_MODE: ${{ inputs.mode }}
+        ACORN_PULL_REQUEST: ${{ inputs.pull-request }}
+        ACORN_TOKEN: ${{ inputs.token }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: node "$GITHUB_ACTION_PATH/run.mjs"

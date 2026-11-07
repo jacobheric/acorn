@@ -61,7 +61,7 @@ export const createCoordinator = (options: {
       const services = await provider.services();
       const targets = services.filter(
         (service) =>
-          service.id === run.serviceId || service.name === `relay-${id}`,
+          service.id === run.serviceId || service.name === `acorn-${id}`,
       );
       for (const service of targets) await provider.remove(service.id);
       const remaining = await provider.services();
@@ -105,7 +105,7 @@ export const createCoordinator = (options: {
     launching.add(run.id);
     try {
       store.updateRun(run.id, { status: "starting" });
-      const serviceId = await provider.create(`relay-${run.id}`);
+      const serviceId = await provider.create(`acorn-${run.id}`);
       store.updateRun(run.id, { serviceId });
       if (!store.getRun(run.id)?.outcome)
         await provider.start(serviceId, run.id, token);
@@ -372,7 +372,7 @@ export const createCoordinator = (options: {
         const service = services.find(
           (candidate) =>
             candidate.id === run.serviceId ||
-            candidate.name === `relay-${run.id}`,
+            candidate.name === `acorn-${run.id}`,
         );
         if (service)
           store.updateRun(run.id, {
@@ -406,7 +406,7 @@ export const createCoordinator = (options: {
           );
       }
       for (const service of services) {
-        if (!/^relay-[a-f0-9-]{36}$/.test(service.name)) continue;
+        if (!/^acorn-[a-f0-9-]{36}$/.test(service.name)) continue;
         const run = store.getRun(service.name.slice(6));
         if (!run || !isActive(run)) await provider.remove(service.id);
       }

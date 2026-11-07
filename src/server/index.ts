@@ -40,7 +40,7 @@ const server = serve({
   port: config.port,
   hostname: "0.0.0.0",
 });
-console.log(`Relay listening on :${config.port}`);
+console.log(`Acorn listening on :${config.port}`);
 void coordinator.reconcile();
 const interval = setInterval(() => void coordinator.reconcile(), 20_000);
 const shutdown = () => {

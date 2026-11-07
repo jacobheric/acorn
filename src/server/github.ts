@@ -16,7 +16,7 @@ export const resolvePublicGit = async (
   repository: string,
   ref: string,
 ): Promise<Commit> => {
-  const directory = await mkdtemp(join(tmpdir(), "relay-source-"));
+  const directory = await mkdtemp(join(tmpdir(), "acorn-source-"));
   const git = async (...args: string[]) =>
     (
       await exec("git", args, {
@@ -80,7 +80,7 @@ export const createGithub = (
       {
         headers: {
           Accept: "application/vnd.github+json",
-          "User-Agent": "relay-ci",
+          "User-Agent": "acorn-ci",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         signal: AbortSignal.timeout(15_000),

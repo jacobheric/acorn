@@ -65,7 +65,7 @@ export const OverviewPage = ({
         reason: "manual",
       });
       setSelectedRun(result.run.id);
-      notify("Run queued. Relay starts it when the runner is available.");
+      notify("Run queued. Acorn starts it when the runner is available.");
     });
   return (
     <>
@@ -137,7 +137,7 @@ export const OverviewPage = ({
           live={Boolean(active)}
         />
       </div>
-      <section className="flow-strip" aria-label="How Relay routes CI">
+      <section className="flow-strip" aria-label="How Acorn routes CI">
         <div className="flow-step">
           <span className="flow-icon">
             <GitBranch size={18} />

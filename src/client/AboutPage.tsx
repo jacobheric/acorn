@@ -27,7 +27,7 @@ export const AboutPage = () => {
             icon={<Laptop size={22} />}
             title="Optionally run CI locally"
           >
-            Relay tests a committed snapshot in a pinned Linux container. Your
+            Acorn tests a committed snapshot in a pinned Linux container. Your
             signing key stays outside the container.
           </Step>
           <Step
@@ -64,10 +64,10 @@ export const AboutPage = () => {
             </div>
             <Terminal size={20} />
           </div>
-          <pre>{`git clone https://github.com/jacobheric/railway\ncd railway && npm ci\n\n# Create a device key\nnpm run relay -- keygen\n\n# Register with operator access\nexport RELAY_URL=${window.location.origin}\nexport RELAY_ADMIN_TOKEN=<operator-token>\nnpm run relay -- register --label "My laptop"\nunset RELAY_ADMIN_TOKEN\n\n# Run before pushing\nnpm run relay -- run --repo ../railway-demo\n\n# Publish the receipt, then push\nnpm run relay -- publish /path/to/receipt.json\ngit -C ../railway-demo push`}</pre>
+          <pre>{`git clone https://github.com/jacobheric/acorn\ncd acorn && npm ci\n\n# Create a device key\nnpm run acorn -- keygen\n\n# Register with operator access\nexport ACORN_URL=${window.location.origin}\nexport ACORN_ADMIN_TOKEN=<operator-token>\nnpm run acorn -- register --label "My laptop"\nunset ACORN_ADMIN_TOKEN\n\n# Run before pushing\nnpm run acorn -- run --repo ../acorn-demo\n\n# Publish the receipt, then push\nnpm run acorn -- publish /path/to/receipt.json\ngit -C ../acorn-demo push`}</pre>
           <a
             className="text-button"
-            href="https://github.com/jacobheric/railway#readme"
+            href="https://github.com/jacobheric/acorn#readme"
             target="_blank"
             rel="noreferrer"
           >

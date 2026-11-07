@@ -32,7 +32,7 @@ const { positionals, values } = parseArgs({
 const command = positionals[0];
 const server = (
   values.server ??
-  process.env.RELAY_URL ??
+  process.env.ACORN_URL ??
   "http://localhost:3000"
 ).replace(/\/$/, "");
 if (
@@ -41,12 +41,12 @@ if (
 )
   throw new Error("Use HTTPS for a remote coordinator");
 const keyPath = resolve(
-  values.key ?? join(homedir(), ".config", "relay", "key.pem"),
+  values.key ?? join(homedir(), ".config", "acorn", "key.pem"),
 );
 const request = async (path: string, body?: unknown, authenticated = false) => {
-  const token = process.env.RELAY_ADMIN_TOKEN ?? process.env.ADMIN_TOKEN;
+  const token = process.env.ACORN_ADMIN_TOKEN ?? process.env.ADMIN_TOKEN;
   if (authenticated && !token)
-    throw new Error("Set RELAY_ADMIN_TOKEN to register a signer");
+    throw new Error("Set ACORN_ADMIN_TOKEN to register a signer");
   const response = await fetch(`${server}/api${path}`, {
     method: body ? "POST" : "GET",
     headers: {
@@ -89,7 +89,7 @@ if (command === "keygen") {
   const repo = resolve(values.repo ?? ".");
   if (git(["status", "--porcelain", "--untracked-files=all"], repo))
     throw new Error(
-      "Commit or stash your changes first. Relay tests an exact committed snapshot.",
+      "Commit or stash your changes first. Acorn tests an exact committed snapshot.",
     );
   if (
     git(["ls-tree", "-r", "HEAD"], repo)
@@ -114,8 +114,8 @@ if (command === "keygen") {
     throw new Error(`This coordinator only accepts ${recipe.repository}`);
   const privateKey = await readFile(keyPath, "utf8");
   const publicKey = await readFile(`${keyPath}.pub`, "utf8");
-  const temp = await mkdtemp(join(tmpdir(), "relay-local-"));
-  const containerName = `relay-local-${process.pid}`;
+  const temp = await mkdtemp(join(tmpdir(), "acorn-local-"));
+  const containerName = `acorn-local-${process.pid}`;
   const startedAt = new Date().toISOString();
   try {
     git(
@@ -204,13 +204,13 @@ if (command === "keygen") {
       privateKey,
     );
     const output = resolve(
-      values.out ?? join(tmpdir(), `relay-${commit.slice(0, 12)}.json`),
+      values.out ?? join(tmpdir(), `acorn-${commit.slice(0, 12)}.json`),
     );
     await writeFile(output, JSON.stringify(receipt, null, 2) + "\n", {
       mode: 0o600,
     });
     console.log(
-      `\nSigned receipt: ${output}\nPublish before pushing: npm run relay -- publish ${output} --server ${server}`,
+      `\nSigned receipt: ${output}\nPublish before pushing: npm run acorn -- publish ${output} --server ${server}`,
     );
   } finally {
     await rm(temp, { recursive: true, force: true });
@@ -224,6 +224,6 @@ if (command === "keygen") {
   console.log(`Receipt accepted: ${stored.id}\n${server}`);
 } else {
   console.log(
-    'Relay\n\n  keygen    [--key path]\n  register  --label "My laptop" [--key path]\n  run       --repo path [--key path] [--out path]\n  publish   receipt.json\n\nAll commands accept --server URL. Registration reads RELAY_ADMIN_TOKEN.',
+    'Acorn\n\n  keygen    [--key path]\n  register  --label "My laptop" [--key path]\n  run       --repo path [--key path] [--out path]\n  publish   receipt.json\n\nAll commands accept --server URL. Registration reads ACORN_ADMIN_TOKEN.',
   );
 }

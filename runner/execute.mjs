@@ -32,7 +32,7 @@ const ownTree = async path => {
 };
 
 const execute = async ({ recipe, commit, tree, archive, onOutput = () => {} }) => {
-  const root = await mkdtemp(join(tmpdir(), 'relay-'));
+  const root = await mkdtemp(join(tmpdir(), 'acorn-'));
   await chmod(root, 0o755);
   const source = join(root, 'source');
   await mkdir(source);

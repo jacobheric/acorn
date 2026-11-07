@@ -10,7 +10,7 @@ permissions:
   pull-requests: read
   checks: write
 concurrency:
-  group: relay-merge-${{ inputs.pull_request }}
+  group: acorn-merge-${{ inputs.pull_request }}
   cancel-in-progress: true
 jobs:
   gate:
@@ -32,10 +32,10 @@ jobs:
             exit 1
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-      - uses: jacobheric/railway/action@2aa26fa78be072fb47a8cd5c7d48642afef92df7
+      - uses: jacobheric/acorn/action@2aa26fa78be072fb47a8cd5c7d48642afef92df7
         with:
-          url: ${{ vars.RELAY_URL }}
+          url: ${{ vars.ACORN_URL }}
           commit: ${{ steps.source.outputs.sha }}
           pull-request: ${{ inputs.pull_request }}
           mode: firewall
-          token: ${{ secrets.RELAY_AUTOMATION_TOKEN }}
+          token: ${{ secrets.ACORN_AUTOMATION_TOKEN }}

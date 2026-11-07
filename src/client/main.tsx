@@ -34,7 +34,7 @@ const App = () => {
   const [page, setPage] = useState<Page>("overview");
   const [data, setData] = useState<State | null>(null);
   const [token, setToken] = useState(
-    () => sessionStorage.getItem("relay-operator") ?? "",
+    () => sessionStorage.getItem("acorn-operator") ?? "",
   );
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -114,7 +114,7 @@ const App = () => {
       );
       if (!result.operator)
         throw new Error("That operator token was not accepted");
-      sessionStorage.setItem("relay-operator", loginToken);
+      sessionStorage.setItem("acorn-operator", loginToken);
       setToken(loginToken);
       setLoginToken("");
       setLoginOpen(false);
@@ -139,7 +139,7 @@ const App = () => {
         >
           <Logo />
           <span>
-            relay<span className="brand-period">.</span>
+            acorn<span className="brand-period">.</span>
           </span>
           <span className="alpha">LAB</span>
         </a>
@@ -175,7 +175,7 @@ const App = () => {
           </div>
           <a
             className="source-link"
-            href="https://github.com/jacobheric/railway"
+            href="https://github.com/jacobheric/acorn"
             target="_blank"
             rel="noreferrer"
           >
@@ -185,7 +185,7 @@ const App = () => {
             className="operator"
             onClick={() =>
               data?.operator
-                ? (sessionStorage.removeItem("relay-operator"), setToken(""))
+                ? (sessionStorage.removeItem("acorn-operator"), setToken(""))
                 : setLoginOpen(true)
             }
           >
@@ -214,12 +214,12 @@ const App = () => {
             {data ? "Live workspace" : "Connecting"}
             <span className="topbar-divider" />
             <a
-              href={`https://github.com/${data?.repository ?? "jacobheric/railway-demo"}`}
+              href={`https://github.com/${data?.repository ?? "jacobheric/acorn-demo"}`}
               target="_blank"
               rel="noreferrer"
             >
               <GitFork size={15} />
-              <span>railway-demo</span>
+              <span>{data?.repository.split("/").at(-1) ?? "acorn-demo"}</span>
               <ArrowUpRight size={13} />
             </a>
           </div>
@@ -276,11 +276,11 @@ const App = () => {
           {page === "about" && <AboutPage />}
           <footer className="footer">
             <span>
-              relay<span className="brand-period">.</span>
+              acorn<span className="brand-period">.</span>
               <span>CI, with a little less waiting.</span>
             </span>
             <a
-              href="https://github.com/jacobheric/railway"
+              href="https://github.com/jacobheric/acorn"
               target="_blank"
               rel="noreferrer"
             >

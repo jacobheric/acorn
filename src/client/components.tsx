@@ -34,28 +34,7 @@ export const statusLabel = (run: PublicRun) =>
         ? "Timed out"
         : run.status[0].toUpperCase() + run.status.slice(1);
 export const Logo = () => (
-  <svg
-    width="31"
-    height="31"
-    viewBox="0 0 32 32"
-    fill="none"
-    aria-hidden="true"
-  >
-    <rect width="32" height="32" rx="9" fill="currentColor" />
-    <path
-      d="M9 11h7a5 5 0 0 1 0 10H9m0-5h14"
-      stroke="var(--surface)"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-    />
-    <path
-      d="m20 13 3 3-3 3"
-      stroke="var(--surface)"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
+  <img src="/favicon.svg" width="31" height="31" alt="" aria-hidden="true" />
 );
 export const Badge = ({
   tone = "",
