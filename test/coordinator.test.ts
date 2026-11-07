@@ -1,4 +1,8 @@
 import { generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   digest,
@@ -12,6 +16,7 @@ import { createGithub } from "../src/server/github.ts";
 import { createApp } from "../src/server/app.ts";
 import { config, recipe } from "../src/server/config.ts";
 import type { Provider, RunnerService } from "../src/server/railway.ts";
+import type { Run } from "../src/core/types.ts";
 
 const keys = generateKeyPairSync("ed25519", {
   publicKeyEncoding: { type: "spki", format: "pem" },
@@ -73,7 +78,6 @@ const setup = () => {
       adminToken: "operator-secret",
       automationToken: "automation-secret",
     },
-    github,
   });
   return { store, provider, github, coordinator, app };
 };
@@ -407,6 +411,52 @@ describe("container lifecycle", () => {
     ).toBeNull();
     expect((await rotated.verify(run.commit)).verified).toBe(false);
   });
+  it("refuses to boot with a retired coordinator key", () => {
+    const { store, provider, github } = setup();
+    const next = generateKeyPairSync("ed25519", {
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const boot = (privateKey: string) =>
+      createCoordinator({
+        store,
+        provider,
+        github,
+        recipe,
+        privateKey,
+        runTtlMs: 600_000,
+      });
+    boot(next.privateKey);
+    expect(() => boot(keys.privateKey)).toThrow("retired");
+    expect(
+      store.signers().find((s) => s.id === keyId(next.publicKey))?.revokedAt,
+    ).toBeNull();
+  });
+  it("does not sign a run that started under a different recipe", async () => {
+    const { coordinator, store, provider, github } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    const restarted = createCoordinator({
+      store,
+      provider,
+      github,
+      recipe: { ...recipe, command: ["node", "-e", "process.exit(1)"] },
+      privateKey: keys.privateKey,
+      runTtlMs: 600_000,
+    });
+    const time = new Date().toISOString();
+    await restarted.complete(run.id, {
+      tree: run.tree,
+      output: "",
+      logDigest: digest(""),
+      exitCode: 0,
+      startedAt: time,
+      finishedAt: time,
+    });
+    await settle();
+    expect(store.getRun(run.id)?.outcome).toBe("failed");
+    expect(store.receipts()).toHaveLength(0);
+  });
   it("forces a fresh firewall run even with a passing receipt", async () => {
     const { coordinator, store } = setup();
     const run = await coordinator.start("main", "manual");
@@ -583,6 +633,26 @@ describe("HTTP trust boundary", () => {
       ).status,
     ).toBe(202);
     expect(github.resolve).toHaveBeenCalled();
+  });
+});
+
+describe("SQLite store", () => {
+  it("drops the old one-active-run index so work can queue", () => {
+    const dir = mkdtempSync(join(tmpdir(), "acorn-store-"));
+    const path = join(dir, "acorn.sqlite");
+    const old = new DatabaseSync(path);
+    old.exec(
+      "CREATE TABLE runs (id TEXT PRIMARY KEY, status TEXT NOT NULL, data TEXT NOT NULL); CREATE UNIQUE INDEX one_active_run ON runs((1)) WHERE status IN ('queued', 'starting', 'running', 'stopping');",
+    );
+    old.close();
+    const store = createStore(path);
+    stores.push(store);
+    const run = { id: "a", status: "running" } as Run;
+    store.saveRun(run);
+    expect(() =>
+      store.saveRun({ ...run, id: "b", status: "queued" }),
+    ).not.toThrow();
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 

@@ -10,15 +10,19 @@ export const createStore = (path: string) => {
     PRAGMA journal_mode = WAL;
     PRAGMA busy_timeout = 5000;
     CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, status TEXT NOT NULL, data TEXT NOT NULL);
+    DROP INDEX IF EXISTS one_active_run;
     CREATE UNIQUE INDEX IF NOT EXISTS one_runner ON runs((1)) WHERE status IN ('starting', 'running', 'stopping');
     CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, tree TEXT NOT NULL, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS signers (id TEXT PRIMARY KEY, data TEXT NOT NULL);
   `);
   const parse = <T>(row: unknown): T | undefined =>
     row ? (JSON.parse((row as { data: string }).data) as T) : undefined;
+  // signers are the trust store, so they are never truncated
   const list = <T>(table: "runs" | "receipts" | "signers"): T[] =>
     db
-      .prepare(`SELECT data FROM ${table} ORDER BY rowid DESC LIMIT 500`)
+      .prepare(
+        `SELECT data FROM ${table} ORDER BY rowid DESC${table === "signers" ? "" : " LIMIT 500"}`,
+      )
       .all()
       .map((row) => parse<T>(row)!);
   const getRun = (id: string) =>

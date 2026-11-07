@@ -39,6 +39,8 @@ export const createCoordinator = (options: {
     : null;
   const signerId = publicKey ? keyId(publicKey) : null;
   if (publicKey && signerId) {
+    if (store.signers().find((signer) => signer.id === signerId)?.revokedAt)
+      throw new Error("RECEIPT_PRIVATE_KEY was retired. Generate a new key.");
     const now = new Date().toISOString();
     // a new coordinator key retires the old one
     for (const signer of store.signers())
@@ -153,6 +155,7 @@ export const createCoordinator = (options: {
         const run = store.updateRun(next.id, {
           status: "starting",
           callbackHash: digest(token),
+          recipeDigest,
           allocatedAt: new Date().toISOString(),
         });
         await launch(run, token);
@@ -306,6 +309,10 @@ export const createCoordinator = (options: {
     if (store.getRun(id)?.outcome) return;
     if (leaseExpired(run)) {
       finish(id, "timed_out", "Runner exceeded its 10 minute lease");
+      return;
+    }
+    if (run.recipeDigest !== recipeDigest) {
+      finish(id, "failed", "CI recipe changed during the run");
       return;
     }
     if (result.tree !== run.tree || digest(result.output) !== result.logDigest)

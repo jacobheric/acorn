@@ -20,7 +20,6 @@ import type { config as Config } from "./config.ts";
 import { recipe, recipeDigest } from "./config.ts";
 import type { Store } from "./store.ts";
 import type { createCoordinator } from "./coordinator.ts";
-import type { createGithub } from "./github.ts";
 
 const sameSecret = (given: string, expected: string) =>
   Boolean(expected) &&
@@ -42,12 +41,10 @@ export const createApp = ({
   store,
   coordinator,
   config,
-  github,
 }: {
   store: Store;
   coordinator: ReturnType<typeof createCoordinator>;
   config: typeof Config;
-  github: ReturnType<typeof createGithub>;
 }) => {
   const app = new Hono<Env>();
   const limits = new Map<string, { count: number; until: number }>();
@@ -142,18 +139,6 @@ export const createApp = ({
       receiptMaxAgeDays: 7,
     }),
   );
-  let headCache: {
-    until: number;
-    data: Awaited<ReturnType<typeof github.resolve>>;
-  } | null = null;
-  app.get("/api/head", async (c) => {
-    if (!headCache || headCache.until < Date.now())
-      headCache = {
-        until: Date.now() + 60_000,
-        data: await github.resolve("main"),
-      };
-    return c.json(headCache.data);
-  });
   app.get("/api/verify", async (c) => {
     if (!rateLimit(c, "verify", 20))
       return c.json(
@@ -271,6 +256,7 @@ export const createApp = ({
     const run = store.getRun(c.req.param("id"))!;
     if (
       run.outcome ||
+      run.recipeDigest !== recipeDigest ||
       Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) >
         config.runTtlMs
     )
