@@ -3,6 +3,15 @@ import { createRailway } from "../src/server/railway.ts";
 import { recipe } from "../src/server/config.ts";
 
 describe("Railway GraphQL adapter", () => {
+  it("refuses to send runner credentials over plain http", () => {
+    const options = { token: "t", projectId: "p", environmentId: "e", recipe };
+    expect(() =>
+      createRailway({ ...options, publicUrl: "http://acorn.example" }),
+    ).toThrow("HTTPS");
+    expect(() =>
+      createRailway({ ...options, publicUrl: "http://localhost:3000" }),
+    ).not.toThrow();
+  });
   it("limits deletion to the token's environment", async () => {
     const request = vi.fn<typeof fetch>(
       async () =>
