@@ -47,7 +47,7 @@ const fixture = ({
     } else if (url.includes("/check-runs?"))
       data = {
         check_runs: queuedCheck
-          ? [{ id: 42, app: { slug: "github-actions" }, details_url: env.ACORN_URL }]
+          ? [{ id: 42, app: { slug: "github-actions" }, details_url: "https://github.com/owner/repo/runs/42" }]
           : [],
       };
     else if (url.endsWith("/check-runs")) data = { id: 42 };

@@ -82,9 +82,7 @@ export const runAction = async (
             `/commits/${ACORN_COMMIT}/check-runs?check_name=${encodeURIComponent(name)}&status=queued&filter=all&per_page=100`,
           )
         ).check_runs.find(
-          (candidate) =>
-            candidate.app?.slug === "github-actions" &&
-            candidate.details_url === base,
+          (candidate) => candidate.app?.slug === "github-actions",
         )
       : undefined;
   const check =
