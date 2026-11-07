@@ -18,6 +18,7 @@ import {
   signReceipt,
 } from "../src/core/receipts.ts";
 import { recipeSchema, receiptSchema } from "../src/core/types.ts";
+import { snapshot } from "./snapshot.ts";
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -118,15 +119,7 @@ if (command === "keygen") {
   const containerName = `acorn-local-${process.pid}`;
   const startedAt = new Date().toISOString();
   try {
-    git(
-      [
-        "archive",
-        "--format=tar",
-        `--output=${join(temp, "source.tar")}`,
-        commit,
-      ],
-      repo,
-    );
+    snapshot(repo, commit, join(temp, "source.tar"));
     const code = await readFile(
       new URL("../runner/execute.mjs", import.meta.url),
       "utf8",

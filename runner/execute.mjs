@@ -1,5 +1,5 @@
 const { spawn } = await import('node:child_process');
-const { mkdtemp, mkdir, chown, chmod, readdir, lstat } = await import('node:fs/promises');
+const { mkdtemp, mkdir, chown, chmod, readdir, lstat, writeFile } = await import('node:fs/promises');
 const { tmpdir } = await import('node:os');
 const { join } = await import('node:path');
 const { createHash } = await import('node:crypto');
@@ -31,6 +31,15 @@ const ownTree = async path => {
   await chown(path, 1000, 1000);
 };
 
+// in-tree attributes must not change what gets tested
+const rawAttributes = '* -export-ignore -export-subst -text -eol -ident -filter -working-tree-encoding\n';
+export const snapshot = async (gitDir, ref, output) => {
+  await mkdir(join(gitDir, 'info'), { recursive: true });
+  await writeFile(join(gitDir, 'info', 'attributes'), rawAttributes);
+  const result = await runProcess('git', ['--git-dir', gitDir, 'archive', '--format=tar', `--output=${output}`, ref], { env: { PATH: process.env.PATH, HOME: gitDir, GIT_CONFIG_NOSYSTEM: '1' } });
+  if (result.exitCode !== 0) throw new Error(`git archive failed: ${result.output.slice(-2000)}`);
+};
+
 const execute = async ({ recipe, commit, tree, archive, onOutput = () => {} }) => {
   const root = await mkdtemp(join(tmpdir(), 'acorn-'));
   await chmod(root, 0o755);
@@ -52,7 +61,7 @@ const execute = async ({ recipe, commit, tree, archive, onOutput = () => {} }) =
     if (actualCommit !== commit || actualTree !== tree) throw new Error('Fetched source does not match the requested commit and tree');
     const entries = await checked('git', ['ls-tree', '-r', 'FETCH_HEAD'], repo);
     if (entries.split('\n').some(line => line.startsWith('160000 '))) throw new Error('Submodules are not supported');
-    await checked('git', ['archive', '--format=tar', `--output=${join(root, 'source.tar')}`, 'FETCH_HEAD'], repo);
+    await snapshot(join(repo, '.git'), 'FETCH_HEAD', join(root, 'source.tar'));
     await checked('tar', ['-xf', join(root, 'source.tar'), '-C', source]);
   }
   await ownTree(root);
