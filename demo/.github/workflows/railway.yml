@@ -1,0 +1,38 @@
+name: Run on Railway
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: main or a full commit SHA
+        required: true
+        default: main
+permissions:
+  contents: read
+  checks: write
+concurrency:
+  group: relay-runner
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REF: ${{ github.event_name == 'push' && github.sha || inputs.commit }}
+        shell: bash
+        run: |
+          if [[ ! "$TARGET_REF" =~ ^[a-f0-9]{40}$ && "$TARGET_REF" != "main" ]]; then
+            exit 1
+          fi
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_REF" --jq .sha)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - uses: jacobheric/railway/action@5028d1155efedae0dd77dde21130cc6850231879
+        with:
+          url: ${{ vars.RELAY_URL }}
+          commit: ${{ steps.source.outputs.sha }}
+          mode: ${{ github.event_name == 'push' && 'firewall' || 'fallback' }}
+          token: ${{ secrets.RELAY_AUTOMATION_TOKEN }}

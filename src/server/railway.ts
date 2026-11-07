@@ -24,7 +24,7 @@ export const operations = {
     "mutation RunnerVariables($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }",
   deploy:
     "mutation DeployRunner($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }",
-  remove: "mutation RemoveRunner($id: String!) { serviceDelete(id: $id) }",
+  remove: "mutation RemoveRunner($id: String!, $environmentId: String!) { serviceDelete(id: $id, environmentId: $environmentId) }",
   services:
     "query RunnerServices($id: String!) { environment(id: $id) { serviceInstances { edges { node { serviceId serviceName latestDeployment { id status } } } } } }",
 };
@@ -108,7 +108,7 @@ export const createRailway = (
       await gql(operations.deploy, { serviceId, environmentId });
     },
     remove: async (id) => {
-      await gql(operations.remove, { id });
+      await gql(operations.remove, { id, environmentId });
     },
     services: async () => {
       const data = await gql<{

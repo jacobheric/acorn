@@ -1,0 +1,25 @@
+name: Verify CI receipt
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full commit SHA to verify
+        required: true
+permissions:
+  contents: read
+  checks: write
+concurrency:
+  group: receipt-${{ github.event.pull_request.number || inputs.commit }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: jacobheric/railway/action@5028d1155efedae0dd77dde21130cc6850231879
+        with:
+          url: ${{ vars.RELAY_URL }}
+          commit: ${{ github.event.pull_request.head.sha || inputs.commit }}
+          mode: verify

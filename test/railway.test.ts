@@ -3,6 +3,14 @@ import { createRailway } from "../src/server/railway.ts";
 import { recipe } from "../src/server/config.ts";
 
 describe("Railway GraphQL adapter", () => {
+  it("limits deletion to the token's environment", async () => {
+    const request = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ data: { serviceDelete: true } })));
+    const provider = createRailway({ token: "project-token", projectId: "p", environmentId: "e", publicUrl: "https://relay.example", recipe }, request);
+    await provider.remove("runner");
+    const body = JSON.parse(request.mock.calls[0][1]!.body as string);
+    expect(body.variables).toEqual({ id: "runner", environmentId: "e" });
+    expect(body.query).toContain("environmentId: $environmentId");
+  });
   it("uses a project token and checks GraphQL errors even on HTTP 200", async () => {
     const request = vi.fn<typeof fetch>(
       async () =>
