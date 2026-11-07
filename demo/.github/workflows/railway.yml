@@ -1,5 +1,8 @@
 name: Run merge gate
 on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, auto_merge_enabled, auto_merge_disabled, edited]
   workflow_dispatch:
     inputs:
       pull_request:
@@ -10,32 +13,38 @@ permissions:
   pull-requests: read
   checks: write
 concurrency:
-  group: acorn-merge-${{ inputs.pull_request }}
+  group: acorn-merge-${{ github.event.pull_request.number || inputs.pull_request }}
   cancel-in-progress: true
 jobs:
   gate:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.state == 'open' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       (github.event.action != 'edited' || github.event.changes.base != null))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - id: source
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ inputs.pull_request }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 1
           SHA=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)
-          BASE=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .base.sha)
-          STATUS=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BASE...$SHA" --jq .status)
-          if [[ "$STATUS" != 'ahead' && "$STATUS" != 'identical' ]]; then
-            echo 'Update the PR branch from main before running the merge gate.'
+          if [[ -n "$EVENT_HEAD" && "$SHA" != "$EVENT_HEAD" ]]; then
+            echo 'This push was superseded.'
             exit 1
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-      - uses: jacobheric/acorn/action@f3de6e68c581b17d5ff78d30ff2c838d523e6826
+      - uses: jacobheric/acorn/action@ad40d062b40c7227cc6a20bac56a29885505ae4a
         with:
           url: ${{ vars.ACORN_URL }}
           commit: ${{ steps.source.outputs.sha }}
-          pull-request: ${{ inputs.pull_request }}
+          pull-request: ${{ github.event.pull_request.number || inputs.pull_request }}
           mode: firewall
+          merge-gate: ${{ github.event_name == 'workflow_dispatch' || vars.ACORN_MERGE_GATE != 'false' }}
+          wait-for-merge: ${{ github.event_name != 'workflow_dispatch' }}
           token: ${{ secrets.ACORN_AUTOMATION_TOKEN }}

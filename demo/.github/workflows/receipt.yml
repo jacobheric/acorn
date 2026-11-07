@@ -34,7 +34,7 @@ jobs:
             exit 1
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-      - uses: jacobheric/acorn/action@f3de6e68c581b17d5ff78d30ff2c838d523e6826
+      - uses: jacobheric/acorn/action@ad40d062b40c7227cc6a20bac56a29885505ae4a
         with:
           url: ${{ vars.ACORN_URL }}
           commit: ${{ steps.source.outputs.sha }}

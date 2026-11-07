@@ -9,9 +9,9 @@ Local CI is optional. To avoid a remote run, use the Acorn CLI to test your comm
 When the PR is ready:
 
 1. Update its branch from `main` if needed.
-2. Open **Actions → Run merge gate → Run workflow**, use the `main` workflow, and enter the PR number.
-3. Wait for **Acorn / CI** and **Acorn / merge gate** to pass, then merge.
+2. Choose **Enable auto-merge** on the PR. Acorn starts the final CI run automatically.
+3. GitHub merges once **Acorn / CI**, **Acorn / merge gate**, and any required reviews pass.
 
-The merge gate always runs fresh CI against GitHub’s proposed merge commit. Branch protection requires both checks and an up-to-date branch, including for administrators. The gate never merges or deploys by itself. There is no CI triggered after merging to main.
+The merge gate runs fresh CI against GitHub’s proposed merge commit. It is on by default; set the repository variable `ACORN_MERGE_GATE=false` to skip this extra run. Branch protection still requires the regular CI check and an up-to-date branch. **Actions → Run merge gate** can force a fresh run manually. There is no CI triggered after merging to main.
 
 The automated demo workflows accept same-repository PRs. Test containers do not receive GitHub or Railway credentials. This repository’s history and CI results are independent of the starter source in Acorn’s `demo/` folder.
