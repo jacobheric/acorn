@@ -4,7 +4,7 @@
 
 Assert CI anywhere. Respect it everywhere.
 
-CI gets expensive when every push repeats work that already passed. Acorn lets trusted laptops and agents share that work, with signed receipts that follow the code. Local CI is optional; Railway runs it when you need remote compute.
+At agentic volume, CI is expensive and slow. Acorn lets trusted laptops and agent containers share that work and ship signed receipts that follow the code.
 
 [Live dashboard](https://acorn-production-f406.up.railway.app) · [Demo repo](https://github.com/jacobheric/acorn-demo) · [Setup guide](docs/setup.md)
 
@@ -17,7 +17,7 @@ CI gets expensive when every push repeats work that already passed. Acorn lets t
 3. **Keep the latest run.** New pushes cancel obsolete CI for the same PR.
 4. **Check before merging.** Choose **Enable auto-merge** on the PR. Acorn runs fresh CI against the proposed merge, then GitHub merges when all requirements pass. This extra check is on by default and can be disabled.
 
-## See it in a PR
+## Check the receipts
 
 > ![Passing GitHub checks for receipt reuse and fresh pre-merge CI](docs/screenshots/pr-checks.jpg)
 >
