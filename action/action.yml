@@ -1,0 +1,28 @@
+name: Relay CI
+description: Verify a signed CI receipt or request a disposable Railway runner.
+inputs:
+  url:
+    description: Relay coordinator URL
+    required: true
+  commit:
+    description: Exact commit SHA to check
+    required: true
+  mode:
+    description: verify, fallback, or firewall
+    default: verify
+  token:
+    description: Scoped Relay automation token; required for fallback and firewall
+  github-token:
+    description: GitHub token with checks write access
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        RELAY_URL: ${{ inputs.url }}
+        RELAY_COMMIT: ${{ inputs.commit }}
+        RELAY_MODE: ${{ inputs.mode }}
+        RELAY_TOKEN: ${{ inputs.token }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: node "$GITHUB_ACTION_PATH/run.mjs"
