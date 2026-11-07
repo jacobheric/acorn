@@ -75,13 +75,13 @@ export const OverviewPage = ({
             <span /> LESS WAITING. MORE SHIPPING.
           </div>
           <h1>
-            Run once.
+            Run CI anywhere.
             <br />
-            <span>Carry the result.</span>
+            <span>Respect it everywhere.</span>
           </h1>
           <p>
-            CI results that follow your code, from your laptop to the pull
-            request.
+            CI results that follow your code, from your laptop or your agent's
+            compute to the pull request.
             <br className="desktop-break" /> A fresh container when you need
             one. A trusted receipt when you don’t.
           </p>

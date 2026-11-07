@@ -2,15 +2,13 @@
 
 Assert CI anywhere. Respect it everywhere.
 
-Relay lets a trusted developer run CI on their laptop or in their agent's compute, sign the result, and ship that result with the pull request. A GitHub Actions workflow asks Relay to verify the receipt. Without one, CI runs automatically on Railway. When fresh compute is needed, Relay starts a container through Railway's GraphQL API, runs CI, and removes the container.
+Relay lets a trusted developer run CI on their laptop or in their agent's compute, sign the result, and ship that result with the pull request. A GitHub Actions workflow asks Relay to verify the receipt. Without one, CI runs automatically on Railway. For this, Relay starts a container through Railway's GraphQL API, runs CI, and removes the container. As a final check, a full CI run is required before a PR can merge.
 
 [Live dashboard](https://relay-production-f406.up.railway.app) · [Demo repository](https://github.com/jacobheric/railway-demo)
 
 ## Why
 
-CI can become the longest part of a small change. More parallel jobs and faster machines help, but they still repeat work that may already be done. This is an experiment in trusting a signed result from a known device, with an independent full run required before merging. Local execution is optional; ordinary pushes still run CI when there is no usable receipt.
-
-It is deliberately small: one public repository, one CI recipe, one active Railway runner. No team onboarding, billing, or general workflow engine.
+At the rate agents write code and push changes to PRs, running large CI suites on every change becomes impractical in both cost and time. CI optimizations, parallel jobs and faster compute help, but they still repeat work that may already be done. This is an experiment in trusting a signed CI result from a known device, so we can distribute CI around and reduce the bottleneck.
 
 ## Try it
 
@@ -56,7 +54,7 @@ git -C ../railway-demo push
 
 Commit changes before running. The CLI rejects a dirty working tree, exports the committed snapshot, and tests it in the exact Linux image configured by the coordinator. It signs only a successful result. Neither the device key nor the operator token enters the test container.
 
-Publish before pushing. Relay validates the signature when you upload, then checks the actual GitHub source tree when the PR workflow requests verification. An uploaded receipt alone never makes a check pass. If you skip local CI, push normally: Relay starts remote CI immediately.
+Publish before pushing. Relay validates the signature when you upload, then checks the actual GitHub source tree when the PR workflow requests verification. If you skip local CI, push normally: Relay starts remote CI immediately.
 
 Keys default to `~/.config/relay/key.pem`. Use `--key` to choose another path, `--out` to choose the receipt path, and `--server` to override `RELAY_URL`.
 
