@@ -1,25 +1,43 @@
-name: Verify CI receipt
+name: PR CI
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
-      commit:
-        description: Full commit SHA to verify
+      pull_request:
+        description: Pull request number
         required: true
 permissions:
   contents: read
+  pull-requests: read
   checks: write
 concurrency:
-  group: receipt-${{ github.event.pull_request.number || inputs.commit }}
-  cancel-in-progress: false
+  group: relay-pr-${{ github.event.pull_request.number || inputs.pull_request }}
+  cancel-in-progress: true
 jobs:
-  verify:
+  ci:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 25
     steps:
-      - uses: jacobheric/railway/action@5028d1155efedae0dd77dde21130cc6850231879
+      - id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 1
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)
+          if [[ -n "$EVENT_HEAD" && "$SHA" != "$EVENT_HEAD" ]]; then
+            echo 'This push was superseded.'
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - uses: jacobheric/railway/action@2aa26fa78be072fb47a8cd5c7d48642afef92df7
         with:
           url: ${{ vars.RELAY_URL }}
-          commit: ${{ github.event.pull_request.head.sha || inputs.commit }}
-          mode: verify
+          commit: ${{ steps.source.outputs.sha }}
+          pull-request: ${{ github.event.pull_request.number || inputs.pull_request }}
+          mode: fallback
+          token: ${{ secrets.RELAY_AUTOMATION_TOKEN }}

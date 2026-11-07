@@ -49,6 +49,8 @@ export const OverviewPage = ({
   const active =
     data?.runs.find((run) => isActive(run) && run.status !== "queued") ??
     data?.runs.find(isActive);
+  const queued =
+    data?.runs.filter((run) => run.status === "queued").length ?? 0;
   const currentRun = data?.runs.find((run) => run.id === selectedRun);
   const localReceipts =
     data?.receipts.filter(
@@ -120,9 +122,18 @@ export const OverviewPage = ({
         />
         <Stat
           label="Active runners"
-          value={data?.runs.filter(isActive).length ?? "—"}
+          value={
+            data?.runs.filter((run) => isActive(run) && run.status !== "queued")
+              .length ?? "—"
+          }
           icon={<Activity size={17} />}
-          detail={active ? statusLabel(active) : "All quiet. Nothing spinning."}
+          detail={
+            queued
+              ? `${queued} queued`
+              : active
+                ? statusLabel(active)
+                : "All quiet. Nothing spinning."
+          }
           live={Boolean(active)}
         />
       </div>
@@ -203,10 +214,17 @@ export const OverviewPage = ({
                       {short(run.commit)}
                       <span>·</span>
                       {run.reason === "firewall"
-                        ? "Merge gate"
+                        ? run.pullRequest
+                          ? "Merge gate"
+                          : "Full CI"
                         : run.reason === "fallback"
                           ? "GitHub fallback"
                           : "Manual run"}
+                      {run.pullRequest && (
+                        <>
+                          <span>·</span>PR #{run.pullRequest.number}
+                        </>
+                      )}
                     </small>
                   </div>
                   <div className="run-meta">
@@ -244,6 +262,19 @@ export const OverviewPage = ({
                 )}
               </div>
               <div className="detail-grid">
+                {currentRun.pullRequest && (
+                  <span>
+                    Pull request
+                    <a
+                      href={`https://github.com/${currentRun.repository}/pull/${currentRun.pullRequest.number}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      #{currentRun.pullRequest.number} ·{" "}
+                      {short(currentRun.pullRequest.head)}
+                    </a>
+                  </span>
+                )}
                 <span>
                   Source tree<code>{short(currentRun.tree)}</code>
                 </span>

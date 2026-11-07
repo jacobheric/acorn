@@ -1,43 +1,41 @@
-name: Run on Railway
+name: Run merge gate
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
-      commit:
-        description: main or a full commit SHA
+      pull_request:
+        description: PR number to test before merging (update its branch first)
         required: true
-        default: main
-      mode:
-        description: Reuse a receipt or force fresh CI
-        type: choice
-        options: [fallback, firewall]
-        default: fallback
 permissions:
   contents: read
+  pull-requests: read
   checks: write
 concurrency:
-  group: relay-runner
-  cancel-in-progress: false
+  group: relay-merge-${{ inputs.pull_request }}
+  cancel-in-progress: true
 jobs:
-  run:
+  gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - id: source
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_REF: ${{ github.event_name == 'push' && github.sha || inputs.commit }}
+          PR_NUMBER: ${{ inputs.pull_request }}
         shell: bash
         run: |
-          if [[ ! "$TARGET_REF" =~ ^[a-f0-9]{40}$ && "$TARGET_REF" != "main" ]]; then
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 1
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)
+          BASE=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .base.sha)
+          STATUS=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BASE...$SHA" --jq .status)
+          if [[ "$STATUS" != 'ahead' && "$STATUS" != 'identical' ]]; then
+            echo 'Update the PR branch from main before running the merge gate.'
             exit 1
           fi
-          SHA=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_REF" --jq .sha)
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-      - uses: jacobheric/railway/action@5028d1155efedae0dd77dde21130cc6850231879
+      - uses: jacobheric/railway/action@2aa26fa78be072fb47a8cd5c7d48642afef92df7
         with:
           url: ${{ vars.RELAY_URL }}
           commit: ${{ steps.source.outputs.sha }}
-          mode: ${{ github.event_name == 'push' && 'firewall' || inputs.mode }}
+          pull-request: ${{ inputs.pull_request }}
+          mode: firewall
           token: ${{ secrets.RELAY_AUTOMATION_TOKEN }}
