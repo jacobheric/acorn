@@ -203,6 +203,10 @@ export const createCoordinator = (options: {
   ) => {
     const run = store.getRun(id);
     if (!run || run.outcome) return;
+    if (Date.now() - Date.parse(run.createdAt) > runTtlMs) {
+      finish(id, "timed_out", "Runner exceeded its 10 minute lease");
+      return;
+    }
     if (result.tree !== run.tree || digest(result.output) !== result.logDigest)
       throw new Error(
         "Runner result does not match the requested source or log",
@@ -253,6 +257,11 @@ export const createCoordinator = (options: {
     if (reconciling || !provider.configured) return;
     reconciling = true;
     try {
+      for (const run of store.runs().filter(isActive)) {
+        if (!run.outcome && Date.now() - Date.parse(run.createdAt) > runTtlMs) {
+          finish(run.id, "timed_out", "Runner exceeded its 10 minute lease");
+        }
+      }
       const services = await provider.services();
       providerError = null;
       for (const run of store.runs().filter(isActive)) {

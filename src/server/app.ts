@@ -271,7 +271,8 @@ export const createApp = ({
   });
   app.get("/api/internal/runs/:id", (c) => {
     const run = store.getRun(c.req.param("id"))!;
-    if (run.outcome) return c.json({ error: "Run is no longer active" }, 409);
+    if (run.outcome || Date.now() - Date.parse(run.createdAt) > config.runTtlMs)
+      return c.json({ error: "Run is no longer active" }, 409);
     return c.json({ recipe, commit: run.commit, tree: run.tree });
   });
   app.post("/api/internal/runs/:id/started", (c) => {

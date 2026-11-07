@@ -1,9 +1,61 @@
+import { execFile } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { shaSchema, type Recipe } from "../core/types.ts";
+
+type Commit = { sha: string; tree: string; message: string };
+const exec = promisify(execFile);
+export const resolvePublicGit = async (
+  repository: string,
+  ref: string,
+): Promise<Commit> => {
+  const directory = await mkdtemp(join(tmpdir(), "relay-source-"));
+  const git = async (...args: string[]) =>
+    (
+      await exec("git", args, {
+        cwd: directory,
+        timeout: 20_000,
+        maxBuffer: 1_000_000,
+        env: {
+          PATH: process.env.PATH,
+          HOME: directory,
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_TERMINAL_PROMPT: "0",
+        },
+      })
+    ).stdout.trim();
+  try {
+    await git("init", "--bare", "-q");
+    await git(
+      "-c",
+      "protocol.file.allow=never",
+      "fetch",
+      "--filter=blob:none",
+      "--depth=1",
+      `https://github.com/${repository}.git`,
+      ref,
+    );
+    const [sha, tree, message] = (
+      await git("show", "--no-patch", "--format=%H%n%T%n%s", "FETCH_HEAD")
+    ).split("\n");
+    return {
+      sha: shaSchema.parse(sha),
+      tree: shaSchema.parse(tree),
+      message: (message ?? "").slice(0, 200),
+    };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+};
 
 export const createGithub = (
   recipe: Recipe,
   token: string,
   request: typeof fetch = fetch,
+  gitResolve = resolvePublicGit,
 ) => {
   const cache = new Map<
     string,
@@ -25,19 +77,23 @@ export const createGithub = (
         signal: AbortSignal.timeout(15_000),
       },
     );
-    if (!response.ok)
+    if (!response.ok && ![403, 429].includes(response.status))
       throw new Error(
         `GitHub returned ${response.status} while resolving the commit`,
       );
-    const data = (await response.json()) as {
-      sha: string;
-      commit: { tree: { sha: string }; message: string };
-    };
-    const result = {
-      sha: shaSchema.parse(data.sha),
-      tree: shaSchema.parse(data.commit.tree.sha),
-      message: data.commit.message.split("\n")[0].slice(0, 200),
-    };
+    const data = response.ok
+      ? ((await response.json()) as {
+          sha: string;
+          commit: { tree: { sha: string }; message: string };
+        })
+      : null;
+    const result = data
+      ? {
+          sha: shaSchema.parse(data.sha),
+          tree: shaSchema.parse(data.commit.tree.sha),
+          message: data.commit.message.split("\n")[0].slice(0, 200),
+        }
+      : await gitResolve(recipe.repository, ref);
     if (ref !== "main") {
       if (result.sha !== ref)
         throw new Error("GitHub returned a different commit");

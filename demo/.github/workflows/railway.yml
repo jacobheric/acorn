@@ -8,6 +8,11 @@ on:
         description: main or a full commit SHA
         required: true
         default: main
+      mode:
+        description: Reuse a receipt or force fresh CI
+        type: choice
+        options: [fallback, firewall]
+        default: fallback
 permissions:
   contents: read
   checks: write
@@ -34,5 +39,5 @@ jobs:
         with:
           url: ${{ vars.RELAY_URL }}
           commit: ${{ steps.source.outputs.sha }}
-          mode: ${{ github.event_name == 'push' && 'firewall' || 'fallback' }}
+          mode: ${{ github.event_name == 'push' && 'firewall' || inputs.mode }}
           token: ${{ secrets.RELAY_AUTOMATION_TOKEN }}

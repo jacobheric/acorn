@@ -76,10 +76,10 @@ The merge firewall runs **after** a push to main. It detects integration failure
 
 `action/` is a dependency-free composite action. It posts a check on the exact commit with the tree, recipe, signer, receipt, and dashboard link.
 
-| Mode | Behavior |
-| --- | --- |
-| `verify` | Verify a receipt; never start compute. |
-| `fallback` | Reuse a valid receipt, otherwise start Railway CI. |
+| Mode       | Behavior                                                  |
+| ---------- | --------------------------------------------------------- |
+| `verify`   | Verify a receipt; never start compute.                    |
+| `fallback` | Reuse a valid receipt, otherwise start Railway CI.        |
 | `firewall` | Always start fresh Railway CI and require its own result. |
 
 The demo uses a base-branch `pull_request_target` workflow to verify receipts. It never checks out or executes PR code in the privileged Actions job. The action is pinned to a commit. Test code runs only in the disposable container, without GitHub or Railway credentials.
@@ -94,18 +94,18 @@ The dashboard uses React, Vite, Hono, and SQLite on a Railway volume. The Docker
 
 Create a second Railway project for runners so they do not share the dashboard's private network or application variables. Create a project token scoped to its environment. Set these variables on the dashboard service:
 
-| Variable | Purpose |
-| --- | --- |
-| `PUBLIC_URL` | Public HTTPS dashboard URL; used by runner callbacks. |
-| `DATABASE_PATH` | `/data/relay.sqlite`; attach a volume at `/data`. |
-| `ADMIN_TOKEN` | Operator access to compute and trusted devices. |
-| `AUTOMATION_TOKEN` | GitHub's scoped run-request credential. |
-| `RECEIPT_PRIVATE_KEY` | Ed25519 coordinator key; PEM or escaped newlines. |
-| `RAILWAY_API_TOKEN` | Runner project token. |
-| `RUNNER_PROJECT_ID` | Project that owns disposable runners. |
-| `RUNNER_ENVIRONMENT_ID` | Environment authorized by that token. |
-| `DEMO_REPOSITORY` | Optional; defaults to `jacobheric/railway-demo`. |
-| `GITHUB_READ_TOKEN` | Optional read-only token if public API rate limits are too low. |
+| Variable                | Purpose                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `PUBLIC_URL`            | Public HTTPS dashboard URL; used by runner callbacks.                            |
+| `DATABASE_PATH`         | `/data/relay.sqlite`; attach a volume at `/data`.                                |
+| `ADMIN_TOKEN`           | Operator access to compute and trusted devices.                                  |
+| `AUTOMATION_TOKEN`      | GitHub's scoped run-request credential.                                          |
+| `RECEIPT_PRIVATE_KEY`   | Ed25519 coordinator key; PEM or escaped newlines.                                |
+| `RAILWAY_API_TOKEN`     | Runner project token.                                                            |
+| `RUNNER_PROJECT_ID`     | Project that owns disposable runners.                                            |
+| `RUNNER_ENVIRONMENT_ID` | Environment authorized by that token.                                            |
+| `DEMO_REPOSITORY`       | Optional; defaults to `jacobheric/railway-demo`.                                 |
+| `GITHUB_READ_TOKEN`     | Optional read-only token. Public Git is used if the API rate limits the request. |
 
 `src/server/railway.ts` calls the [Railway GraphQL API](https://docs.railway.com/integrations/api) directly, with `Project-Access-Token` authentication. It creates an empty service, configures the pinned image and restart policy, sets a per-run callback credential, and deploys it. Stopping removes the disposable service and its deployment with `serviceDelete`.
 
@@ -117,17 +117,17 @@ If the coordinator is down, a worker exits on its own but its service record rem
 
 ## Code map
 
-| Path | Responsibility |
-| --- | --- |
-| `src/core/` | Receipt schema, canonical signing, verification. |
-| `cli/` | Device keys, local Docker execution, receipt publication. |
-| `src/server/coordinator.ts` | Run state, cancellation, deadlines, reconciliation. |
-| `src/server/railway.ts` | GraphQL adapter behind a small provider interface. |
-| `runner/` | Container supervisor and isolated test execution. |
-| `src/server/app.ts` | Public reads, operator writes, scoped callbacks. |
-| `src/client/` | Dashboard, runner controls, receipts, device management. |
-| `action/` | GitHub check and optional remote execution. |
-| `demo/` | Starter source for the independent demo repository. |
+| Path                        | Responsibility                                            |
+| --------------------------- | --------------------------------------------------------- |
+| `src/core/`                 | Receipt schema, canonical signing, verification.          |
+| `cli/`                      | Device keys, local Docker execution, receipt publication. |
+| `src/server/coordinator.ts` | Run state, cancellation, deadlines, reconciliation.       |
+| `src/server/railway.ts`     | GraphQL adapter behind a small provider interface.        |
+| `runner/`                   | Container supervisor and isolated test execution.         |
+| `src/server/app.ts`         | Public reads, operator writes, scoped callbacks.          |
+| `src/client/`               | Dashboard, runner controls, receipts, device management.  |
+| `action/`                   | GitHub check and optional remote execution.               |
+| `demo/`                     | Starter source for the independent demo repository.       |
 
 The provider interface is the seam for another compute backend. Receipt validation, the CLI, the UI, and the GitHub integration do not depend on Railway.
 

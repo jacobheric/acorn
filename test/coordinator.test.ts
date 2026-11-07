@@ -75,6 +75,26 @@ const settle = async () => {
 };
 
 describe("container lifecycle", () => {
+  it("does not accept a result after the lease expires", async () => {
+    const { coordinator, store } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    store.updateRun(run.id, {
+      createdAt: new Date(Date.now() - 700_000).toISOString(),
+    });
+    const time = new Date().toISOString();
+    coordinator.complete(run.id, {
+      tree: run.tree,
+      output: "",
+      logDigest: digest(""),
+      exitCode: 0,
+      startedAt: time,
+      finishedAt: time,
+    });
+    await settle();
+    expect(store.receipts()).toHaveLength(0);
+    expect(store.getRun(run.id)?.status).toBe("timed_out");
+  });
   it("reserves a single runner slot before provisioning", async () => {
     const { coordinator, store } = setup();
     const results = await Promise.allSettled([
@@ -352,6 +372,22 @@ describe("HTTP trust boundary", () => {
 });
 
 describe("GitHub source resolution", () => {
+  it("falls back to public Git when the API is rate limited", async () => {
+    const commit = {
+      sha: "a".repeat(40),
+      tree: "b".repeat(40),
+      message: "public source",
+    };
+    const fallback = vi.fn(async () => commit);
+    const github = createGithub(
+      recipe,
+      "",
+      async () => new Response("", { status: 403 }),
+      fallback,
+    );
+    expect(await github.resolve(commit.sha)).toEqual(commit);
+    expect(fallback).toHaveBeenCalledWith(recipe.repository, commit.sha);
+  });
   it("does not follow arbitrary refs or send credentials to arbitrary hosts", async () => {
     const request = vi.fn();
     const github = createGithub(recipe, "secret", request);
