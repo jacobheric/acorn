@@ -339,6 +339,74 @@ describe("container lifecycle", () => {
     await settle();
     expect(store.getRun(run.id)?.status).toBe("timed_out");
   });
+  it("keeps queued work waiting past the lease until the runner is free", async () => {
+    const { coordinator, store } = setup();
+    const first = await coordinator.start("a".repeat(40), "manual");
+    const second = await coordinator.start("c".repeat(40), "manual");
+    await settle();
+    store.updateRun(second.id, {
+      createdAt: new Date(Date.now() - 700_000).toISOString(),
+    });
+    await coordinator.reconcile();
+    await settle();
+    expect(store.getRun(second.id)?.status).toBe("queued");
+    coordinator.stop(first.id);
+    await settle();
+    expect(store.getRun(second.id)?.status).toBe("starting");
+  });
+  it("still expires an old runner after many newer runs", async () => {
+    const { coordinator, store } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    store.updateRun(run.id, {
+      allocatedAt: new Date(Date.now() - 700_000).toISOString(),
+    });
+    for (let i = 0; i < 501; i++)
+      store.saveRun({
+        ...run,
+        id: `done-${i}`,
+        status: "passed",
+        outcome: "passed",
+      });
+    await coordinator.reconcile();
+    await settle();
+    expect(store.getRun(run.id)?.status).toBe("timed_out");
+  });
+  it("retires the old coordinator key when the key rotates", async () => {
+    const { coordinator, store, github, provider } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    const time = new Date().toISOString();
+    await coordinator.complete(run.id, {
+      tree: run.tree,
+      output: "",
+      logDigest: digest(""),
+      exitCode: 0,
+      startedAt: time,
+      finishedAt: time,
+    });
+    await settle();
+    expect((await coordinator.verify(run.commit)).verified).toBe(true);
+    const next = generateKeyPairSync("ed25519", {
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const rotated = createCoordinator({
+      store,
+      provider,
+      github,
+      recipe,
+      privateKey: next.privateKey,
+      runTtlMs: 600_000,
+    });
+    expect(
+      store.signers().find((s) => s.id === keyId(keys.publicKey))?.revokedAt,
+    ).toBeTruthy();
+    expect(
+      store.signers().find((s) => s.id === keyId(next.publicKey))?.revokedAt,
+    ).toBeNull();
+    expect((await rotated.verify(run.commit)).verified).toBe(false);
+  });
   it("forces a fresh firewall run even with a passing receipt", async () => {
     const { coordinator, store } = setup();
     const run = await coordinator.start("main", "manual");
@@ -487,6 +555,34 @@ describe("HTTP trust boundary", () => {
     expect(
       await (await app.request(`/api/verify?commit=${claim.commit}`)).json(),
     ).toMatchObject({ verified: true });
+  });
+  it("keeps public traffic from using up CI's request budget", async () => {
+    const { app, github } = setup();
+    for (let i = 0; i < 40; i++) {
+      await app.request("/api/receipts", { method: "POST", body: "{}" });
+      await app.request(`/api/verify?commit=${"a".repeat(40)}`);
+    }
+    expect(
+      (await app.request(`/api/verify?commit=${"a".repeat(40)}`)).status,
+    ).toBe(429);
+    const automation = { Authorization: "Bearer automation-secret" };
+    expect(
+      (
+        await app.request(`/api/verify?commit=${"a".repeat(40)}`, {
+          headers: automation,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await app.request("/api/runs", {
+          method: "POST",
+          headers: automation,
+          body: JSON.stringify({ commit: "main" }),
+        })
+      ).status,
+    ).toBe(202);
+    expect(github.resolve).toHaveBeenCalled();
   });
 });
 

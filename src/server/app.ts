@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
@@ -25,6 +25,7 @@ import type { createGithub } from "./github.ts";
 const sameSecret = (given: string, expected: string) =>
   Boolean(expected) &&
   timingSafeEqual(Buffer.from(digest(given)), Buffer.from(digest(expected)));
+type Env = { Variables: { operator: boolean; automation: boolean } };
 const publicRun = ({ callbackHash: _hash, ...run }: Run): PublicRun => run;
 const resultSchema = z
   .object({
@@ -48,9 +49,11 @@ export const createApp = ({
   config: typeof Config;
   github: ReturnType<typeof createGithub>;
 }) => {
-  const app = new Hono<{ Variables: { operator: boolean } }>();
+  const app = new Hono<Env>();
   const limits = new Map<string, { count: number; until: number }>();
-  const rateLimit = (key: string, max: number) => {
+  // public callers share a budget; credentialed callers skip it
+  const rateLimit = (c: Context<Env>, key: string, max: number) => {
+    if (c.get("operator") || c.get("automation")) return true;
     const now = Date.now();
     for (const [entry, limit] of limits)
       if (limit.until <= now) limits.delete(entry);
@@ -84,10 +87,10 @@ export const createApp = ({
     c.header("Cache-Control", "no-store");
     const token = c.req.header("Authorization")?.replace(/^Bearer /, "") ?? "";
     c.set("operator", sameSecret(token, config.adminToken));
+    c.set("automation", sameSecret(token, config.automationToken));
     const internal = c.req.path.startsWith("/api/internal/");
     if (!internal && c.req.method !== "GET") {
-      const automation =
-        c.req.path === "/api/runs" && sameSecret(token, config.automationToken);
+      const automation = c.req.path === "/api/runs" && c.get("automation");
       if (!c.get("operator") && !automation && c.req.path !== "/api/receipts")
         return c.json({ error: "Operator access required" }, 401);
       const origin = c.req.header("Origin");
@@ -97,7 +100,7 @@ export const createApp = ({
         origin !== "http://127.0.0.1:5173"
       )
         return c.json({ error: "Origin not allowed" }, 403);
-      if (!rateLimit("writes", 30))
+      if (!rateLimit(c, "writes", 30))
         return c.json(
           { error: "Too many requests. Try again in a minute." },
           429,
@@ -152,7 +155,7 @@ export const createApp = ({
     return c.json(headCache.data);
   });
   app.get("/api/verify", async (c) => {
-    if (!rateLimit("verify", 20))
+    if (!rateLimit(c, "verify", 20))
       return c.json(
         { error: "Verification rate limit. Try again in a minute." },
         429,

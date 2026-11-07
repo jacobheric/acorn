@@ -38,20 +38,30 @@ export const createCoordinator = (options: {
         .toString()
     : null;
   const signerId = publicKey ? keyId(publicKey) : null;
-  if (
-    publicKey &&
-    signerId &&
-    !store.signers().some((signer) => signer.id === signerId)
-  ) {
-    store.saveSigner({
-      id: signerId,
-      publicKey,
-      label: "Railway runner",
-      source: "railway",
-      addedAt: new Date().toISOString(),
-      revokedAt: null,
-    });
+  if (publicKey && signerId) {
+    const now = new Date().toISOString();
+    // a new coordinator key retires the old one
+    for (const signer of store.signers())
+      if (
+        signer.source === "railway" &&
+        signer.id !== signerId &&
+        !signer.revokedAt
+      )
+        store.saveSigner({ ...signer, revokedAt: now });
+    if (!store.signers().some((signer) => signer.id === signerId))
+      store.saveSigner({
+        id: signerId,
+        publicKey,
+        label: "Railway runner",
+        source: "railway",
+        addedAt: now,
+        revokedAt: null,
+      });
   }
+  const leased = (run: Run) =>
+    Date.now() - Date.parse(run.allocatedAt ?? run.createdAt);
+  const leaseExpired = (run: Run) =>
+    run.status !== "queued" && leased(run) > runTtlMs;
   const cleanup = async (id: string) => {
     if (launching.has(id) || cleaning.has(id)) return;
     const run = store.getRun(id);
@@ -131,13 +141,8 @@ export const createCoordinator = (options: {
     if (scheduling || !provider.configured) return;
     scheduling = true;
     try {
-      while (
-        !store.runs().some((run) => isActive(run) && run.status !== "queued")
-      ) {
-        const next = store
-          .runs()
-          .filter((run) => run.status === "queued")
-          .at(-1);
+      while (!store.activeRuns().some((run) => run.status !== "queued")) {
+        const next = store.activeRuns().find((run) => run.status === "queued");
         if (!next) break;
         if (!(await current(next))) {
           finish(next.id, "cancelled", "Superseded by a newer PR head or base");
@@ -208,7 +213,7 @@ export const createCoordinator = (options: {
     if (!provider.configured || !signerId)
       throw new Error("Railway runners are not configured");
     const resolved = await github.resolve(ref);
-    const active = store.runs().filter(isActive);
+    const active = store.activeRuns();
     const existing = active.find(
       (run) =>
         run.commit === resolved.sha &&
@@ -252,7 +257,7 @@ export const createCoordinator = (options: {
   ) => {
     if (number && (await github.pullHead(number)) !== ref)
       throw new Error("This commit is no longer the PR head");
-    for (const run of store.runs().filter(isActive)) {
+    for (const run of store.activeRuns()) {
       if (
         number &&
         run.pullRequest?.number === number &&
@@ -299,7 +304,7 @@ export const createCoordinator = (options: {
       return;
     }
     if (store.getRun(id)?.outcome) return;
-    if (Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) > runTtlMs) {
+    if (leaseExpired(run)) {
       finish(id, "timed_out", "Runner exceeded its 10 minute lease");
       return;
     }
@@ -353,17 +358,12 @@ export const createCoordinator = (options: {
     if (reconciling || !provider.configured) return;
     reconciling = true;
     try {
-      for (const run of store.runs().filter(isActive)) {
-        if (
-          !run.outcome &&
-          Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) > runTtlMs
-        ) {
+      for (const run of store.activeRuns())
+        if (!run.outcome && leaseExpired(run))
           finish(run.id, "timed_out", "Runner exceeded its 10 minute lease");
-        }
-      }
       const services = await provider.services();
       providerError = null;
-      for (const run of store.runs().filter(isActive)) {
+      for (const run of store.activeRuns()) {
         if (!run.outcome && !(await current(run))) {
           finish(run.id, "cancelled", "Superseded by a newer PR head or base");
           continue;
@@ -381,11 +381,6 @@ export const createCoordinator = (options: {
           });
         if (run.outcome) await cleanup(run.id);
         else if (
-          Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) >
-          runTtlMs
-        )
-          finish(run.id, "timed_out", "Runner exceeded its 10 minute lease");
-        else if (
           service?.status &&
           ["FAILED", "CRASHED", "REMOVED"].includes(service.status)
         )
@@ -394,11 +389,7 @@ export const createCoordinator = (options: {
             "failed",
             `Railway deployment ${service.status.toLowerCase()} before a result was accepted`,
           );
-        else if (
-          !service &&
-          !launching.has(run.id) &&
-          Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) > 30_000
-        )
+        else if (!service && !launching.has(run.id) && leased(run) > 30_000)
           finish(
             run.id,
             "failed",

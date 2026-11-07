@@ -68,6 +68,6 @@ Create a separate project for disposable runners, then create a project token sc
 | `DEMO_REPOSITORY` | Optional; defaults to `jacobheric/acorn-demo`. |
 | `GITHUB_READ_TOKEN` | Optional read-only token; public Git is the fallback. |
 
-Only the configured public repo can run. Test containers receive no GitHub or Railway credentials. One runner executes at a time; other PRs wait in a persistent queue. Tests time out after three minutes, workers exit after eight, and the coordinator enforces a ten-minute lease and retries cleanup.
+Only the configured public repo can run. Test containers receive no GitHub or Railway credentials. One runner executes at a time; other PRs wait in a persistent queue. Tests time out after three minutes, workers exit after eight, and the coordinator enforces a ten-minute lease once a runner starts and retries cleanup. Rotating `RECEIPT_PRIVATE_KEY` retires the old coordinator key on the next boot.
 
 Private repositories, LFS, submodules, and tests requiring secrets are outside this demo's scope.
