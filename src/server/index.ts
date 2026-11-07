@@ -31,7 +31,7 @@ const coordinator = createCoordinator({
   privateKey: config.privateKey,
   runTtlMs: config.runTtlMs,
 });
-const app = createApp({ store, coordinator, config, github });
+const app = createApp({ store, coordinator, config });
 app.get("/api/*", (c) => c.json({ error: "Not found" }, 404));
 app.get("*", serveStatic({ root: "./dist" }));
 app.get("*", serveStatic({ path: "./dist/index.html" }));

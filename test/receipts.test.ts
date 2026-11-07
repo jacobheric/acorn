@@ -49,6 +49,16 @@ describe("signed CI receipts", () => {
     );
     expect(objectDigest({ a: 1, b: 2 })).toBe(objectDigest({ b: 2, a: 1 }));
   });
+  it("accepts only one encoding of a signature", () => {
+    const sig = receipt.signature;
+    const last = "AQgw".indexOf(sig[85]);
+    const variant = `${sig.slice(0, 85)}${"BRhx"[last]}==`;
+    expect(Buffer.from(variant, "base64")).toEqual(Buffer.from(sig, "base64"));
+    expect(
+      validateReceipt({ ...receipt, signature: variant }, signer, expected, now)
+        .valid,
+    ).toBe(false);
+  });
   it("accepts a trusted receipt for the same source and recipe", () =>
     expect(validateReceipt(receipt, signer, expected, now).valid).toBe(true));
   it("allows another commit with the same tree without rewriting the original claim", () => {

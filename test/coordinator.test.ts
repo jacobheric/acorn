@@ -1,4 +1,8 @@
 import { generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   digest,
@@ -12,11 +16,17 @@ import { createGithub } from "../src/server/github.ts";
 import { createApp } from "../src/server/app.ts";
 import { config, recipe } from "../src/server/config.ts";
 import type { Provider, RunnerService } from "../src/server/railway.ts";
+import type { Run, Signer } from "../src/core/types.ts";
 
 const keys = generateKeyPairSync("ed25519", {
   publicKeyEncoding: { type: "spki", format: "pem" },
   privateKeyEncoding: { type: "pkcs8", format: "pem" },
 });
+const newKey = () =>
+  generateKeyPairSync("ed25519", {
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  });
 const stores: Store[] = [];
 afterEach(() => {
   stores.forEach((store) => store.close());
@@ -73,7 +83,6 @@ const setup = () => {
       adminToken: "operator-secret",
       automationToken: "automation-secret",
     },
-    github,
   });
   return { store, provider, github, coordinator, app };
 };
@@ -325,6 +334,72 @@ describe("container lifecycle", () => {
     const run = await coordinator.start("main", "manual");
     await settle();
     expect(provider.remove).toHaveBeenCalledWith("orphan");
+    expect(store.getRun(run.id)?.status).toBe("stopping");
+    store.updateRun(run.id, {
+      finishedAt: new Date(Date.now() - 61_000).toISOString(),
+    });
+    await coordinator.reconcile();
+    expect(store.getRun(run.id)?.status).toBe("failed");
+  });
+  it("removes the known service even when the listing misses it", async () => {
+    const { coordinator, provider, store } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    vi.mocked(provider.services).mockResolvedValueOnce([]);
+    coordinator.stop(run.id);
+    await settle();
+    expect(provider.remove).toHaveBeenCalledWith("service-1");
+    expect(store.getRun(run.id)?.status).toBe("cancelled");
+  });
+  it("keeps cleanup pending while the service is still listed by name", async () => {
+    const { coordinator, provider, store } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    vi.mocked(provider.remove).mockImplementationOnce(async () => {});
+    vi.mocked(provider.services)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "other",
+          name: `acorn-${run.id}`,
+          deploymentId: null,
+          status: null,
+        },
+      ]);
+    coordinator.stop(run.id);
+    await settle();
+    expect(store.getRun(run.id)?.status).toBe("stopping");
+    await coordinator.reconcile();
+    expect(store.getRun(run.id)?.status).toBe("cancelled");
+  });
+  it("fails a running job right away when the recipe changes", async () => {
+    const { coordinator, store, provider, github } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    const restarted = createCoordinator({
+      store,
+      provider,
+      github,
+      recipe: { ...recipe, command: ["node", "-e", "process.exit(1)"] },
+      privateKey: keys.privateKey,
+      runTtlMs: 600_000,
+    });
+    await restarted.reconcile();
+    await settle();
+    expect(store.getRun(run.id)?.status).toBe("failed");
+    expect(store.getRun(run.id)?.cleanupAt).toBeTruthy();
+  });
+  it("fails and removes a recovered service that was never deployed", async () => {
+    const { coordinator, store, provider } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    store.updateRun(run.id, {
+      allocatedAt: new Date(Date.now() - 61_000).toISOString(),
+    });
+    await coordinator.reconcile();
+    await settle();
+    expect(store.getRun(run.id)?.error).toContain("interrupted");
+    expect(provider.remove).toHaveBeenCalledWith("service-1");
     expect(store.getRun(run.id)?.status).toBe("failed");
   });
   it("expires abandoned runs", async () => {
@@ -338,6 +413,196 @@ describe("container lifecycle", () => {
     await coordinator.reconcile();
     await settle();
     expect(store.getRun(run.id)?.status).toBe("timed_out");
+  });
+  it("keeps queued work waiting past the lease until the runner is free", async () => {
+    const { coordinator, store } = setup();
+    const first = await coordinator.start("a".repeat(40), "manual");
+    const second = await coordinator.start("c".repeat(40), "manual");
+    await settle();
+    store.updateRun(second.id, {
+      createdAt: new Date(Date.now() - 700_000).toISOString(),
+    });
+    await coordinator.reconcile();
+    await settle();
+    expect(store.getRun(second.id)?.status).toBe("queued");
+    coordinator.stop(first.id);
+    await settle();
+    expect(store.getRun(second.id)?.status).toBe("starting");
+  });
+  it("still expires an old runner after many newer runs", async () => {
+    const { coordinator, store } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    store.updateRun(run.id, {
+      allocatedAt: new Date(Date.now() - 700_000).toISOString(),
+    });
+    for (let i = 0; i < 501; i++)
+      store.saveRun({
+        ...run,
+        id: `done-${i}`,
+        status: "passed",
+        outcome: "passed",
+      });
+    await coordinator.reconcile();
+    await settle();
+    expect(store.getRun(run.id)?.status).toBe("timed_out");
+  });
+  it("retires the old coordinator key when the key rotates", async () => {
+    const { coordinator, store, github, provider } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    const time = new Date().toISOString();
+    await coordinator.complete(run.id, {
+      tree: run.tree,
+      output: "",
+      logDigest: digest(""),
+      exitCode: 0,
+      startedAt: time,
+      finishedAt: time,
+    });
+    await settle();
+    expect((await coordinator.verify(run.commit)).verified).toBe(true);
+    const next = generateKeyPairSync("ed25519", {
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const rotated = createCoordinator({
+      store,
+      provider,
+      github,
+      recipe,
+      privateKey: next.privateKey,
+      runTtlMs: 600_000,
+    });
+    expect(
+      store.signers().find((s) => s.id === keyId(keys.publicKey))?.revokedAt,
+    ).toBeTruthy();
+    expect(
+      store.signers().find((s) => s.id === keyId(next.publicKey))?.revokedAt,
+    ).toBeNull();
+    expect((await rotated.verify(run.commit)).verified).toBe(false);
+  });
+  it("refuses to boot with a retired coordinator key", () => {
+    const { store, provider, github } = setup();
+    const next = generateKeyPairSync("ed25519", {
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const boot = (privateKey: string) =>
+      createCoordinator({
+        store,
+        provider,
+        github,
+        recipe,
+        privateKey,
+        runTtlMs: 600_000,
+      });
+    boot(next.privateKey);
+    expect(() => boot(keys.privateKey)).toThrow("retired");
+    expect(
+      store.signers().find((s) => s.id === keyId(next.publicKey))?.revokedAt,
+    ).toBeNull();
+  });
+  it("fails a passing run whose coordinator key was retired mid-run", async () => {
+    const { coordinator, store, provider, github } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    createCoordinator({
+      store,
+      provider,
+      github,
+      recipe,
+      privateKey: newKey().privateKey,
+      runTtlMs: 600_000,
+    });
+    const time = new Date().toISOString();
+    await coordinator.complete(run.id, {
+      tree: run.tree,
+      output: "",
+      logDigest: digest(""),
+      exitCode: 0,
+      startedAt: time,
+      finishedAt: time,
+    });
+    await settle();
+    expect(store.getRun(run.id)?.outcome).toBe("failed");
+    expect(store.receipts()).toHaveLength(0);
+  });
+  it("rotates keys atomically", () => {
+    const { store, provider, github } = setup();
+    const next = newKey();
+    const failing = {
+      ...store,
+      saveSigner: (signer: Signer) => {
+        if (signer.revokedAt) throw new Error("disk full");
+        return store.saveSigner(signer);
+      },
+    };
+    expect(() =>
+      createCoordinator({
+        store: failing,
+        provider,
+        github,
+        recipe,
+        privateKey: next.privateKey,
+        runTtlMs: 600_000,
+      }),
+    ).toThrow("disk full");
+    expect(store.getSigner(keyId(keys.publicKey))?.revokedAt).toBeNull();
+    expect(store.getSigner(keyId(next.publicKey))).toBeUndefined();
+  });
+  it("refuses a device key as the coordinator key", () => {
+    const store = createStore(":memory:");
+    stores.push(store);
+    const { provider, github } = setup();
+    const device = newKey();
+    store.saveSigner({
+      id: keyId(device.publicKey),
+      label: "Laptop",
+      publicKey: device.publicKey,
+      source: "local",
+      addedAt: new Date().toISOString(),
+      revokedAt: null,
+    });
+    const boot = (privateKey: string) =>
+      createCoordinator({
+        store,
+        provider,
+        github,
+        recipe,
+        privateKey,
+        runTtlMs: 600_000,
+      });
+    expect(() => boot(device.privateKey)).toThrow("device key");
+    const next = newKey();
+    boot(next.privateKey);
+    expect(store.getSigner(keyId(next.publicKey))?.source).toBe("railway");
+    expect(store.getSigner(keyId(device.publicKey))?.source).toBe("local");
+  });
+  it("does not sign a run that started under a different recipe", async () => {
+    const { coordinator, store, provider, github } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    const restarted = createCoordinator({
+      store,
+      provider,
+      github,
+      recipe: { ...recipe, command: ["node", "-e", "process.exit(1)"] },
+      privateKey: keys.privateKey,
+      runTtlMs: 600_000,
+    });
+    const time = new Date().toISOString();
+    await restarted.complete(run.id, {
+      tree: run.tree,
+      output: "",
+      logDigest: digest(""),
+      exitCode: 0,
+      startedAt: time,
+      finishedAt: time,
+    });
+    await settle();
+    expect(store.getRun(run.id)?.outcome).toBe("failed");
+    expect(store.receipts()).toHaveLength(0);
   });
   it("forces a fresh firewall run even with a passing receipt", async () => {
     const { coordinator, store } = setup();
@@ -487,6 +752,54 @@ describe("HTTP trust boundary", () => {
     expect(
       await (await app.request(`/api/verify?commit=${claim.commit}`)).json(),
     ).toMatchObject({ verified: true });
+  });
+  it("keeps public traffic from using up CI's request budget", async () => {
+    const { app, github } = setup();
+    for (let i = 0; i < 40; i++) {
+      await app.request("/api/receipts", { method: "POST", body: "{}" });
+      await app.request(`/api/verify?commit=${"a".repeat(40)}`);
+    }
+    expect(
+      (await app.request(`/api/verify?commit=${"a".repeat(40)}`)).status,
+    ).toBe(429);
+    const automation = { Authorization: "Bearer automation-secret" };
+    expect(
+      (
+        await app.request(`/api/verify?commit=${"a".repeat(40)}`, {
+          headers: automation,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await app.request("/api/runs", {
+          method: "POST",
+          headers: automation,
+          body: JSON.stringify({ commit: "main" }),
+        })
+      ).status,
+    ).toBe(202);
+    expect(github.resolve).toHaveBeenCalled();
+  });
+});
+
+describe("SQLite store", () => {
+  it("drops the old one-active-run index so work can queue", () => {
+    const dir = mkdtempSync(join(tmpdir(), "acorn-store-"));
+    const path = join(dir, "acorn.sqlite");
+    const old = new DatabaseSync(path);
+    old.exec(
+      "CREATE TABLE runs (id TEXT PRIMARY KEY, status TEXT NOT NULL, data TEXT NOT NULL); CREATE UNIQUE INDEX one_active_run ON runs((1)) WHERE status IN ('queued', 'starting', 'running', 'stopping');",
+    );
+    old.close();
+    const store = createStore(path);
+    stores.push(store);
+    const run = { id: "a", status: "running" } as Run;
+    store.saveRun(run);
+    expect(() =>
+      store.saveRun({ ...run, id: "b", status: "queued" }),
+    ).not.toThrow();
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 

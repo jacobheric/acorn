@@ -17,9 +17,12 @@ export const createStore = (path: string) => {
   `);
   const parse = <T>(row: unknown): T | undefined =>
     row ? (JSON.parse((row as { data: string }).data) as T) : undefined;
+  // signers are the trust store, so they are never truncated
   const list = <T>(table: "runs" | "receipts" | "signers"): T[] =>
     db
-      .prepare(`SELECT data FROM ${table} ORDER BY rowid DESC LIMIT 500`)
+      .prepare(
+        `SELECT data FROM ${table} ORDER BY rowid DESC${table === "signers" ? "" : " LIMIT 500"}`,
+      )
       .all()
       .map((row) => parse<T>(row)!);
   const getRun = (id: string) =>
@@ -32,6 +35,13 @@ export const createStore = (path: string) => {
   };
   return {
     runs: () => list<Run>("runs"),
+    activeRuns: () =>
+      db
+        .prepare(
+          "SELECT data FROM runs WHERE status IN ('queued', 'starting', 'running', 'stopping') ORDER BY rowid",
+        )
+        .all()
+        .map((row) => parse<Run>(row)!),
     receipts: () => list<StoredReceipt>("receipts"),
     signers: () => list<Signer>("signers"),
     getRun,
@@ -54,6 +64,20 @@ export const createStore = (path: string) => {
         .prepare("SELECT data FROM receipts WHERE tree = ? ORDER BY rowid DESC")
         .all(tree)
         .map((row) => parse<StoredReceipt>(row)!),
+    getSigner: (id: string) =>
+      parse<Signer>(
+        db.prepare("SELECT data FROM signers WHERE id = ?").get(id),
+      ),
+    transaction: (fn: () => void) => {
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        fn();
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    },
     saveSigner: (signer: Signer) => {
       db.prepare(
         "INSERT INTO signers VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data",

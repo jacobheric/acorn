@@ -218,6 +218,16 @@ describe("GitHub action", () => {
     );
     expect(checks.at(-1).conclusion).toBe("success");
   });
+  it("authenticates every Acorn request so public traffic cannot rate limit CI", async () => {
+    const { request } = fixture();
+    await runAction(env, request, async () => {});
+    const acorn = request.mock.calls.filter(([url]) =>
+      url.startsWith(env.ACORN_URL),
+    );
+    expect(acorn.length).toBeGreaterThan(2);
+    for (const [, options] of acorn)
+      expect(options.headers.Authorization).toBe("Bearer automation");
+  });
   it("cannot pass a merge gate using a different run's receipt", async () => {
     const { request, checks } = fixture({ wrongReceipt: true });
     await expect(

@@ -37,7 +37,8 @@ export const claimSchema = z
 export const receiptSchema = z
   .object({
     claim: claimSchema,
-    signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
+    // unused padding bits must be zero so one signature has one encoding
+    signature: z.string().regex(/^[A-Za-z0-9+/]{85}[AQgw]==$/),
   })
   .strict();
 
@@ -84,6 +85,7 @@ export type Run = {
   cleanupAt: string | null;
   cleanupError: string | null;
   callbackHash: string;
+  recipeDigest?: string;
   receiptId: string | null;
   logs: string;
   error: string | null;

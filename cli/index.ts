@@ -18,6 +18,7 @@ import {
   signReceipt,
 } from "../src/core/receipts.ts";
 import { recipeSchema, receiptSchema } from "../src/core/types.ts";
+import { snapshot } from "./snapshot.ts";
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -35,16 +36,16 @@ const server = (
   process.env.ACORN_URL ??
   "http://localhost:3000"
 ).replace(/\/$/, "");
-if (
-  new URL(server).protocol !== "https:" &&
-  !["localhost", "127.0.0.1"].includes(new URL(server).hostname)
-)
+const local = ["localhost", "127.0.0.1"].includes(new URL(server).hostname);
+if (new URL(server).protocol !== "https:" && !local)
   throw new Error("Use HTTPS for a remote coordinator");
 const keyPath = resolve(
   values.key ?? join(homedir(), ".config", "acorn", "key.pem"),
 );
 const request = async (path: string, body?: unknown, authenticated = false) => {
-  const token = process.env.ACORN_ADMIN_TOKEN ?? process.env.ADMIN_TOKEN;
+  // the local .env token never leaves this machine
+  const token =
+    process.env.ACORN_ADMIN_TOKEN ?? (local ? process.env.ADMIN_TOKEN : "");
   if (authenticated && !token)
     throw new Error("Set ACORN_ADMIN_TOKEN to register a signer");
   const response = await fetch(`${server}/api${path}`, {
@@ -118,15 +119,7 @@ if (command === "keygen") {
   const containerName = `acorn-local-${process.pid}`;
   const startedAt = new Date().toISOString();
   try {
-    git(
-      [
-        "archive",
-        "--format=tar",
-        `--output=${join(temp, "source.tar")}`,
-        commit,
-      ],
-      repo,
-    );
+    snapshot(repo, commit, join(temp, "source.tar"));
     const code = await readFile(
       new URL("../runner/execute.mjs", import.meta.url),
       "utf8",

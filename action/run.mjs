@@ -57,9 +57,7 @@ export const runAction = async (
       method: body ? "POST" : "GET",
       headers: {
         "Content-Type": "application/json",
-        ...(body && ACORN_TOKEN
-          ? { Authorization: `Bearer ${ACORN_TOKEN}` }
-          : {}),
+        ...(ACORN_TOKEN ? { Authorization: `Bearer ${ACORN_TOKEN}` } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
     });

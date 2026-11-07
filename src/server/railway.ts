@@ -41,6 +41,16 @@ export const createRailway = (
   request: typeof fetch = fetch,
 ): Provider => {
   const { token, projectId, environmentId, publicUrl, recipe } = options;
+  // runners send their callback token here
+  const url = new URL(publicUrl);
+  if (
+    url.protocol !== "https:" &&
+    !(
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1"].includes(url.hostname)
+    )
+  )
+    throw new Error("PUBLIC_URL must use HTTPS");
   const gql = async <T>(
     query: string,
     variables: Record<string, unknown>,

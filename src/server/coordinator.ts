@@ -14,7 +14,7 @@ import {
   type Verification,
 } from "../core/types.ts";
 import type { Store } from "./store.ts";
-import type { Provider } from "./railway.ts";
+import type { Provider, RunnerService } from "./railway.ts";
 import type { createGithub } from "./github.ts";
 
 export const createCoordinator = (options: {
@@ -38,39 +38,61 @@ export const createCoordinator = (options: {
         .toString()
     : null;
   const signerId = publicKey ? keyId(publicKey) : null;
-  if (
-    publicKey &&
-    signerId &&
-    !store.signers().some((signer) => signer.id === signerId)
-  ) {
-    store.saveSigner({
-      id: signerId,
-      publicKey,
-      label: "Railway runner",
-      source: "railway",
-      addedAt: new Date().toISOString(),
-      revokedAt: null,
+  if (publicKey && signerId) {
+    const existing = store.getSigner(signerId);
+    if (existing && existing.source !== "railway")
+      throw new Error(
+        "RECEIPT_PRIVATE_KEY is registered as a device key. Generate a new key.",
+      );
+    if (existing?.revokedAt)
+      throw new Error("RECEIPT_PRIVATE_KEY was retired. Generate a new key.");
+    const now = new Date().toISOString();
+    store.transaction(() => {
+      if (!existing)
+        store.saveSigner({
+          id: signerId,
+          publicKey,
+          label: "Railway runner",
+          source: "railway",
+          addedAt: now,
+          revokedAt: null,
+        });
+      // a new coordinator key retires the old one
+      for (const signer of store.signers())
+        if (
+          signer.source === "railway" &&
+          signer.id !== signerId &&
+          !signer.revokedAt
+        )
+          store.saveSigner({ ...signer, revokedAt: now });
     });
   }
+  const graceMs = 60_000;
+  const leased = (run: Run) =>
+    Date.now() - Date.parse(run.allocatedAt ?? run.createdAt);
+  const leaseExpired = (run: Run) =>
+    run.status !== "queued" && leased(run) > runTtlMs;
   const cleanup = async (id: string) => {
     if (launching.has(id) || cleaning.has(id)) return;
     const run = store.getRun(id);
     if (!run || !run.outcome) return;
     cleaning.add(id);
     try {
-      const services = await provider.services();
-      const targets = services.filter(
-        (service) =>
-          service.id === run.serviceId || service.name === `acorn-${id}`,
+      const ours = (service: RunnerService) =>
+        service.id === run.serviceId || service.name === `acorn-${id}`;
+      const targets = new Set(
+        (await provider.services()).filter(ours).map((service) => service.id),
       );
-      for (const service of targets) await provider.remove(service.id);
-      const remaining = await provider.services();
-      if (
-        remaining.some((service) =>
-          targets.some((target) => target.id === service.id),
-        )
-      )
+      if (run.serviceId) targets.add(run.serviceId);
+      for (const serviceId of targets)
+        await provider.remove(serviceId).catch((error: Error) => {
+          if (!/not found/i.test(error.message)) throw error;
+        });
+      if ((await provider.services()).some(ours))
         throw new Error("Railway is still removing the container");
+      // a service found only by name may not be listed yet
+      if (!run.serviceId && Date.now() - Date.parse(run.finishedAt!) < graceMs)
+        throw new Error("Confirming the runner was never created");
       store.updateRun(id, {
         status: run.outcome,
         cleanupAt: new Date().toISOString(),
@@ -131,13 +153,8 @@ export const createCoordinator = (options: {
     if (scheduling || !provider.configured) return;
     scheduling = true;
     try {
-      while (
-        !store.runs().some((run) => isActive(run) && run.status !== "queued")
-      ) {
-        const next = store
-          .runs()
-          .filter((run) => run.status === "queued")
-          .at(-1);
+      while (!store.activeRuns().some((run) => run.status !== "queued")) {
+        const next = store.activeRuns().find((run) => run.status === "queued");
         if (!next) break;
         if (!(await current(next))) {
           finish(next.id, "cancelled", "Superseded by a newer PR head or base");
@@ -148,6 +165,7 @@ export const createCoordinator = (options: {
         const run = store.updateRun(next.id, {
           status: "starting",
           callbackHash: digest(token),
+          recipeDigest,
           allocatedAt: new Date().toISOString(),
         });
         await launch(run, token);
@@ -208,7 +226,7 @@ export const createCoordinator = (options: {
     if (!provider.configured || !signerId)
       throw new Error("Railway runners are not configured");
     const resolved = await github.resolve(ref);
-    const active = store.runs().filter(isActive);
+    const active = store.activeRuns();
     const existing = active.find(
       (run) =>
         run.commit === resolved.sha &&
@@ -252,7 +270,7 @@ export const createCoordinator = (options: {
   ) => {
     if (number && (await github.pullHead(number)) !== ref)
       throw new Error("This commit is no longer the PR head");
-    for (const run of store.runs().filter(isActive)) {
+    for (const run of store.activeRuns()) {
       if (
         number &&
         run.pullRequest?.number === number &&
@@ -299,8 +317,12 @@ export const createCoordinator = (options: {
       return;
     }
     if (store.getRun(id)?.outcome) return;
-    if (Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) > runTtlMs) {
+    if (leaseExpired(run)) {
       finish(id, "timed_out", "Runner exceeded its 10 minute lease");
+      return;
+    }
+    if (run.recipeDigest !== recipeDigest) {
+      finish(id, "failed", "CI recipe changed during the run");
       return;
     }
     if (result.tree !== run.tree || digest(result.output) !== result.logDigest)
@@ -314,6 +336,12 @@ export const createCoordinator = (options: {
     )
       throw new Error("Invalid runner timestamps");
     store.updateRun(id, { logs: result.output, startedAt: result.startedAt });
+    // another coordinator may have rotated the key mid-run
+    const signer = signerId ? store.getSigner(signerId) : undefined;
+    if (result.exitCode === 0 && (!signer || signer.revokedAt)) {
+      finish(id, "failed", "Coordinator key was retired during the run");
+      return;
+    }
     if (result.exitCode === 0 && signerId) {
       const receipt = signReceipt(
         {
@@ -353,17 +381,12 @@ export const createCoordinator = (options: {
     if (reconciling || !provider.configured) return;
     reconciling = true;
     try {
-      for (const run of store.runs().filter(isActive)) {
-        if (
-          !run.outcome &&
-          Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) > runTtlMs
-        ) {
+      for (const run of store.activeRuns())
+        if (!run.outcome && leaseExpired(run))
           finish(run.id, "timed_out", "Runner exceeded its 10 minute lease");
-        }
-      }
       const services = await provider.services();
       providerError = null;
-      for (const run of store.runs().filter(isActive)) {
+      for (const run of store.activeRuns()) {
         if (!run.outcome && !(await current(run))) {
           finish(run.id, "cancelled", "Superseded by a newer PR head or base");
           continue;
@@ -380,11 +403,8 @@ export const createCoordinator = (options: {
             deploymentId: service.deploymentId,
           });
         if (run.outcome) await cleanup(run.id);
-        else if (
-          Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) >
-          runTtlMs
-        )
-          finish(run.id, "timed_out", "Runner exceeded its 10 minute lease");
+        else if (run.recipeDigest !== recipeDigest)
+          finish(run.id, "failed", "CI recipe changed during the run");
         else if (
           service?.status &&
           ["FAILED", "CRASHED", "REMOVED"].includes(service.status)
@@ -395,9 +415,9 @@ export const createCoordinator = (options: {
             `Railway deployment ${service.status.toLowerCase()} before a result was accepted`,
           );
         else if (
-          !service &&
+          !service?.deploymentId &&
           !launching.has(run.id) &&
-          Date.now() - Date.parse(run.allocatedAt ?? run.createdAt) > 30_000
+          leased(run) > graceMs
         )
           finish(
             run.id,
