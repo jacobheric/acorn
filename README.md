@@ -17,7 +17,11 @@ CI gets expensive when every push repeats work that already passed. Acorn lets t
 3. **Keep the latest run.** New pushes cancel obsolete CI for the same PR.
 4. **Check before merging.** Choose **Enable auto-merge** on the PR. Acorn runs fresh CI against the proposed merge, then GitHub merges when all requirements pass. This extra check is on by default and can be disabled.
 
-![Passing GitHub checks for receipt reuse and fresh pre-merge CI](docs/screenshots/pr-checks.jpg)
+## See it in a PR
+
+> ![Passing GitHub checks for receipt reuse and fresh pre-merge CI](docs/screenshots/pr-checks.jpg)
+>
+> The PR reuses a trusted receipt. A fresh CI run still checks the proposed merge.
 
 [Receipt reuse and merge gate](https://github.com/jacobheric/acorn-demo/pull/1) · [Remote CI passes](https://github.com/jacobheric/acorn-demo/pull/3) · [Remote CI catches a bug](https://github.com/jacobheric/acorn-demo/pull/4)
 
