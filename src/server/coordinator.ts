@@ -14,7 +14,7 @@ import {
   type Verification,
 } from "../core/types.ts";
 import type { Store } from "./store.ts";
-import type { Provider } from "./railway.ts";
+import type { Provider, RunnerService } from "./railway.ts";
 import type { createGithub } from "./github.ts";
 
 export const createCoordinator = (options: {
@@ -67,6 +67,7 @@ export const createCoordinator = (options: {
           store.saveSigner({ ...signer, revokedAt: now });
     });
   }
+  const graceMs = 60_000;
   const leased = (run: Run) =>
     Date.now() - Date.parse(run.allocatedAt ?? run.createdAt);
   const leaseExpired = (run: Run) =>
@@ -77,19 +78,21 @@ export const createCoordinator = (options: {
     if (!run || !run.outcome) return;
     cleaning.add(id);
     try {
-      const services = await provider.services();
-      const targets = services.filter(
-        (service) =>
-          service.id === run.serviceId || service.name === `acorn-${id}`,
+      const ours = (service: RunnerService) =>
+        service.id === run.serviceId || service.name === `acorn-${id}`;
+      const targets = new Set(
+        (await provider.services()).filter(ours).map((service) => service.id),
       );
-      for (const service of targets) await provider.remove(service.id);
-      const remaining = await provider.services();
-      if (
-        remaining.some((service) =>
-          targets.some((target) => target.id === service.id),
-        )
-      )
+      if (run.serviceId) targets.add(run.serviceId);
+      for (const serviceId of targets)
+        await provider.remove(serviceId).catch((error: Error) => {
+          if (!/not found/i.test(error.message)) throw error;
+        });
+      if ((await provider.services()).some(ours))
         throw new Error("Railway is still removing the container");
+      // a service found only by name may not be listed yet
+      if (!run.serviceId && Date.now() - Date.parse(run.finishedAt!) < graceMs)
+        throw new Error("Confirming the runner was never created");
       store.updateRun(id, {
         status: run.outcome,
         cleanupAt: new Date().toISOString(),
@@ -400,6 +403,8 @@ export const createCoordinator = (options: {
             deploymentId: service.deploymentId,
           });
         if (run.outcome) await cleanup(run.id);
+        else if (run.recipeDigest !== recipeDigest)
+          finish(run.id, "failed", "CI recipe changed during the run");
         else if (
           service?.status &&
           ["FAILED", "CRASHED", "REMOVED"].includes(service.status)
@@ -409,7 +414,11 @@ export const createCoordinator = (options: {
             "failed",
             `Railway deployment ${service.status.toLowerCase()} before a result was accepted`,
           );
-        else if (!service && !launching.has(run.id) && leased(run) > 30_000)
+        else if (
+          !service?.deploymentId &&
+          !launching.has(run.id) &&
+          leased(run) > graceMs
+        )
           finish(
             run.id,
             "failed",

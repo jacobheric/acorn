@@ -334,6 +334,72 @@ describe("container lifecycle", () => {
     const run = await coordinator.start("main", "manual");
     await settle();
     expect(provider.remove).toHaveBeenCalledWith("orphan");
+    expect(store.getRun(run.id)?.status).toBe("stopping");
+    store.updateRun(run.id, {
+      finishedAt: new Date(Date.now() - 61_000).toISOString(),
+    });
+    await coordinator.reconcile();
+    expect(store.getRun(run.id)?.status).toBe("failed");
+  });
+  it("removes the known service even when the listing misses it", async () => {
+    const { coordinator, provider, store } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    vi.mocked(provider.services).mockResolvedValueOnce([]);
+    coordinator.stop(run.id);
+    await settle();
+    expect(provider.remove).toHaveBeenCalledWith("service-1");
+    expect(store.getRun(run.id)?.status).toBe("cancelled");
+  });
+  it("keeps cleanup pending while the service is still listed by name", async () => {
+    const { coordinator, provider, store } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    vi.mocked(provider.remove).mockImplementationOnce(async () => {});
+    vi.mocked(provider.services)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "other",
+          name: `acorn-${run.id}`,
+          deploymentId: null,
+          status: null,
+        },
+      ]);
+    coordinator.stop(run.id);
+    await settle();
+    expect(store.getRun(run.id)?.status).toBe("stopping");
+    await coordinator.reconcile();
+    expect(store.getRun(run.id)?.status).toBe("cancelled");
+  });
+  it("fails a running job right away when the recipe changes", async () => {
+    const { coordinator, store, provider, github } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    const restarted = createCoordinator({
+      store,
+      provider,
+      github,
+      recipe: { ...recipe, command: ["node", "-e", "process.exit(1)"] },
+      privateKey: keys.privateKey,
+      runTtlMs: 600_000,
+    });
+    await restarted.reconcile();
+    await settle();
+    expect(store.getRun(run.id)?.status).toBe("failed");
+    expect(store.getRun(run.id)?.cleanupAt).toBeTruthy();
+  });
+  it("fails and removes a recovered service that was never deployed", async () => {
+    const { coordinator, store, provider } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    store.updateRun(run.id, {
+      allocatedAt: new Date(Date.now() - 61_000).toISOString(),
+    });
+    await coordinator.reconcile();
+    await settle();
+    expect(store.getRun(run.id)?.error).toContain("interrupted");
+    expect(provider.remove).toHaveBeenCalledWith("service-1");
     expect(store.getRun(run.id)?.status).toBe("failed");
   });
   it("expires abandoned runs", async () => {
