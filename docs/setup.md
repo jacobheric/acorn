@@ -41,11 +41,13 @@ The [demo workflows](../demo/.github/workflows/) use the pinned [composite actio
 | --- | --- |
 | `verify` | Check an existing receipt without starting compute. |
 | `fallback` | Reuse a matching receipt or run CI on Railway. |
-| `firewall` | Always run fresh CI; with `pull-request`, test the proposed merge. |
+| `firewall` | Run fresh CI against the proposed merge; the gate is on by default. |
 
 The PR workflow uses `pull_request_target` for same-repository PRs. It never checks out PR code into the privileged job. Test failures appear in the GitHub check and Actions summary.
 
-Require **Acorn / CI**, **Acorn / merge gate**, and an up-to-date branch in branch protection. Before merging, update the PR branch, then run **Actions → Run merge gate** with its PR number. Rerun the gate if the PR or base changes. It tests the merge result; it does not merge or deploy it.
+Require **Acorn / CI**, **Acorn / merge gate**, and an up-to-date branch in branch protection. Enable **Allow auto-merge** in the repository settings. When a PR is ready, update its branch if GitHub asks, then choose **Enable auto-merge** on the PR. This starts fresh CI against the proposed merge. GitHub merges only after all required checks and reviews pass. New pushes replace obsolete gate runs while auto-merge remains enabled.
+
+The gate is on by default. Set the repository variable `ACORN_MERGE_GATE` to `false` to opt out of the extra pre-merge run. On the next PR event, its check reports **Merge gate disabled**; the regular CI check still applies. Leave both checks in branch protection. Remove the variable to restore the default. **Actions → Run merge gate** remains available to force a fresh run manually, including when the automatic gate is disabled.
 
 ## Railway
 

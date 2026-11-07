@@ -96,8 +96,9 @@ export const AboutPage = () => {
           <ArrowDownLeft size={20} />
           <h3>Keep a second check.</h3>
           <p>
-            Run the merge gate when your PR is ready. GitHub requires its full
-            remote test run to pass before merging and deploying.
+            Enable auto-merge when your PR is ready. Acorn runs fresh CI before
+            GitHub merges it. This extra check is on by default and can be
+            disabled.
           </p>
         </div>
       </div>

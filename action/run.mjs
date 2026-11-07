@@ -12,6 +12,8 @@ export const runAction = async (
     ACORN_MODE = "fallback",
     ACORN_TOKEN,
     ACORN_PULL_REQUEST,
+    ACORN_MERGE_GATE = "true",
+    ACORN_WAIT_FOR_MERGE = "false",
     GH_TOKEN,
     GITHUB_REPOSITORY,
     GITHUB_STEP_SUMMARY,
@@ -22,6 +24,11 @@ export const runAction = async (
     throw new Error("Provide a full commit SHA");
   if (!["verify", "fallback", "firewall"].includes(ACORN_MODE))
     throw new Error("Unknown mode");
+  if (
+    !["true", "false"].includes(ACORN_MERGE_GATE) ||
+    !["true", "false"].includes(ACORN_WAIT_FOR_MERGE)
+  )
+    throw new Error("merge-gate and wait-for-merge must be true or false");
   const pullRequest = ACORN_PULL_REQUEST
     ? Number(ACORN_PULL_REQUEST)
     : undefined;
@@ -30,6 +37,10 @@ export const runAction = async (
     (!Number.isSafeInteger(pullRequest) || pullRequest < 1)
   )
     throw new Error("Invalid pull request number");
+  const automaticGate =
+    ACORN_MODE === "firewall" && ACORN_WAIT_FOR_MERGE === "true";
+  if (automaticGate && !pullRequest)
+    throw new Error("Automatic merge gates require a pull request number");
   const base = ACORN_URL.replace(/\/$/, "");
   const json = async (url, options) => {
     const response = await request(url, {
@@ -66,7 +77,7 @@ export const runAction = async (
   const check = await github("/check-runs", {
     name: ACORN_MODE === "firewall" ? "Acorn / merge gate" : "Acorn / CI",
     head_sha: ACORN_COMMIT,
-    status: "in_progress",
+    status: automaticGate ? "queued" : "in_progress",
     details_url: base,
   });
   let run;
@@ -108,8 +119,38 @@ export const runAction = async (
         throw new Error(
           "The pull request changed or closed. This result is superseded.",
         );
+      if (automaticGate && run && !pr.auto_merge)
+        throw new Error(
+          "The merge request was withdrawn. This run is superseded.",
+        );
+      return pr;
     };
-    await assertCurrent();
+    const pr = await assertCurrent();
+    if (ACORN_MODE === "firewall" && ACORN_MERGE_GATE === "false") {
+      await writeCheck(
+        "skipped",
+        "Merge gate disabled",
+        "The repository has opted out of fresh pre-merge CI. The regular Acorn / CI check still applies.",
+      );
+      return;
+    }
+    if (automaticGate && !pr.auto_merge) {
+      await github(
+        `/check-runs/${check.id}`,
+        {
+          status: "queued",
+          output: {
+            title: "Waiting for a merge request",
+            summary:
+              "Enable auto-merge on this PR to start fresh CI. GitHub will merge it after all required checks and reviews pass.",
+          },
+        },
+        "PATCH",
+      );
+      return;
+    }
+    if (automaticGate)
+      await github(`/check-runs/${check.id}`, { status: "in_progress" }, "PATCH");
     let verification;
     if (ACORN_MODE === "verify") {
       verification = await acorn(`/verify?commit=${ACORN_COMMIT}`);

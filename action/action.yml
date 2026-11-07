@@ -12,6 +12,12 @@ inputs:
     default: fallback
   pull-request:
     description: PR number for supersession and testing the proposed merge result
+  merge-gate:
+    description: Whether firewall mode requires fresh CI; false reports a skipped gate
+    default: "true"
+  wait-for-merge:
+    description: In firewall mode, wait until auto-merge is enabled on the PR
+    default: "false"
   token:
     description: Scoped Acorn automation token; required for fallback and firewall
   github-token:
@@ -26,6 +32,8 @@ runs:
         ACORN_COMMIT: ${{ inputs.commit }}
         ACORN_MODE: ${{ inputs.mode }}
         ACORN_PULL_REQUEST: ${{ inputs.pull-request }}
+        ACORN_MERGE_GATE: ${{ inputs.merge-gate }}
+        ACORN_WAIT_FOR_MERGE: ${{ inputs.wait-for-merge }}
         ACORN_TOKEN: ${{ inputs.token }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: node "$GITHUB_ACTION_PATH/run.mjs"

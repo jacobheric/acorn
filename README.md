@@ -15,7 +15,7 @@ CI gets expensive when every push repeats work that already passed. Acorn lets t
 1. **Run anywhere.** Optionally test your committed code locally and publish a signed receipt before pushing.
 2. **Push normally.** A GitHub Actions workflow checks for a matching receipt. Without one, Acorn starts a Railway container through its GraphQL API, runs CI, and removes it.
 3. **Keep the latest run.** New pushes cancel obsolete CI for the same PR.
-4. **Check before merging.** A separate required check runs fresh CI against the proposed merge, even when a receipt was reused.
+4. **Check before merging.** Choose **Enable auto-merge** on the PR. Acorn runs fresh CI against the proposed merge, then GitHub merges when all requirements pass. This extra check is on by default and can be disabled.
 
 ![Passing GitHub checks for receipt reuse and fresh pre-merge CI](docs/screenshots/pr-checks.jpg)
 
@@ -44,9 +44,9 @@ Commit your changes, run the suite with `npm run acorn -- run --repo ../acorn-de
 
 ## The trust boundary
 
-A receipt must match the repository, full Git tree, and CI recipe. Amending a commit message preserves it; changing any file invalidates it. Receipts expire after seven days, and signer keys can be revoked.
+Acorn accepts a receipt when it comes from a trusted signer and matches the repository, source files, and CI recipe. It still applies if you amend a commit message, but not if you change a tracked file. Receipts expire after seven days, and you can revoke signer keys at any time.
 
-**A signature identifies who made a claim. It does not prove they told the truth.** This is a demo for trusted contributors. The fresh merge gate is the final safeguard; in the demo, start it from **Actions → Run merge gate** before merging.
+We still trust the signer to have actually run CI. The automatic pre-merge run gives us an independent check, even when the PR already has a receipt. See the [setup guide](docs/setup.md#github) to configure it or opt out.
 
 ## Inside
 
