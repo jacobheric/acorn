@@ -24,7 +24,8 @@ export const operations = {
     "mutation RunnerVariables($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }",
   deploy:
     "mutation DeployRunner($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }",
-  remove: "mutation RemoveRunner($id: String!, $environmentId: String!) { serviceDelete(id: $id, environmentId: $environmentId) }",
+  remove:
+    "mutation RemoveRunner($id: String!, $environmentId: String!) { serviceDelete(id: $id, environmentId: $environmentId) }",
   services:
     "query RunnerServices($id: String!) { environment(id: $id) { serviceInstances { edges { node { serviceId serviceName latestDeployment { id status } } } } } }",
 };
