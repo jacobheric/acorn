@@ -16,12 +16,17 @@ import { createGithub } from "../src/server/github.ts";
 import { createApp } from "../src/server/app.ts";
 import { config, recipe } from "../src/server/config.ts";
 import type { Provider, RunnerService } from "../src/server/railway.ts";
-import type { Run } from "../src/core/types.ts";
+import type { Run, Signer } from "../src/core/types.ts";
 
 const keys = generateKeyPairSync("ed25519", {
   publicKeyEncoding: { type: "spki", format: "pem" },
   privateKeyEncoding: { type: "pkcs8", format: "pem" },
 });
+const newKey = () =>
+  generateKeyPairSync("ed25519", {
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  });
 const stores: Store[] = [];
 afterEach(() => {
   stores.forEach((store) => store.close());
@@ -431,6 +436,82 @@ describe("container lifecycle", () => {
     expect(
       store.signers().find((s) => s.id === keyId(next.publicKey))?.revokedAt,
     ).toBeNull();
+  });
+  it("fails a passing run whose coordinator key was retired mid-run", async () => {
+    const { coordinator, store, provider, github } = setup();
+    const run = await coordinator.start("main", "manual");
+    await settle();
+    createCoordinator({
+      store,
+      provider,
+      github,
+      recipe,
+      privateKey: newKey().privateKey,
+      runTtlMs: 600_000,
+    });
+    const time = new Date().toISOString();
+    await coordinator.complete(run.id, {
+      tree: run.tree,
+      output: "",
+      logDigest: digest(""),
+      exitCode: 0,
+      startedAt: time,
+      finishedAt: time,
+    });
+    await settle();
+    expect(store.getRun(run.id)?.outcome).toBe("failed");
+    expect(store.receipts()).toHaveLength(0);
+  });
+  it("rotates keys atomically", () => {
+    const { store, provider, github } = setup();
+    const next = newKey();
+    const failing = {
+      ...store,
+      saveSigner: (signer: Signer) => {
+        if (signer.revokedAt) throw new Error("disk full");
+        return store.saveSigner(signer);
+      },
+    };
+    expect(() =>
+      createCoordinator({
+        store: failing,
+        provider,
+        github,
+        recipe,
+        privateKey: next.privateKey,
+        runTtlMs: 600_000,
+      }),
+    ).toThrow("disk full");
+    expect(store.getSigner(keyId(keys.publicKey))?.revokedAt).toBeNull();
+    expect(store.getSigner(keyId(next.publicKey))).toBeUndefined();
+  });
+  it("refuses a device key as the coordinator key", () => {
+    const store = createStore(":memory:");
+    stores.push(store);
+    const { provider, github } = setup();
+    const device = newKey();
+    store.saveSigner({
+      id: keyId(device.publicKey),
+      label: "Laptop",
+      publicKey: device.publicKey,
+      source: "local",
+      addedAt: new Date().toISOString(),
+      revokedAt: null,
+    });
+    const boot = (privateKey: string) =>
+      createCoordinator({
+        store,
+        provider,
+        github,
+        recipe,
+        privateKey,
+        runTtlMs: 600_000,
+      });
+    expect(() => boot(device.privateKey)).toThrow("device key");
+    const next = newKey();
+    boot(next.privateKey);
+    expect(store.getSigner(keyId(next.publicKey))?.source).toBe("railway");
+    expect(store.getSigner(keyId(device.publicKey))?.source).toBe("local");
   });
   it("does not sign a run that started under a different recipe", async () => {
     const { coordinator, store, provider, github } = setup();

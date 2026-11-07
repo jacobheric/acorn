@@ -64,6 +64,20 @@ export const createStore = (path: string) => {
         .prepare("SELECT data FROM receipts WHERE tree = ? ORDER BY rowid DESC")
         .all(tree)
         .map((row) => parse<StoredReceipt>(row)!),
+    getSigner: (id: string) =>
+      parse<Signer>(
+        db.prepare("SELECT data FROM signers WHERE id = ?").get(id),
+      ),
+    transaction: (fn: () => void) => {
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        fn();
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    },
     saveSigner: (signer: Signer) => {
       db.prepare(
         "INSERT INTO signers VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data",

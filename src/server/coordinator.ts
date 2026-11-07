@@ -39,26 +39,33 @@ export const createCoordinator = (options: {
     : null;
   const signerId = publicKey ? keyId(publicKey) : null;
   if (publicKey && signerId) {
-    if (store.signers().find((signer) => signer.id === signerId)?.revokedAt)
+    const existing = store.getSigner(signerId);
+    if (existing && existing.source !== "railway")
+      throw new Error(
+        "RECEIPT_PRIVATE_KEY is registered as a device key. Generate a new key.",
+      );
+    if (existing?.revokedAt)
       throw new Error("RECEIPT_PRIVATE_KEY was retired. Generate a new key.");
     const now = new Date().toISOString();
-    // a new coordinator key retires the old one
-    for (const signer of store.signers())
-      if (
-        signer.source === "railway" &&
-        signer.id !== signerId &&
-        !signer.revokedAt
-      )
-        store.saveSigner({ ...signer, revokedAt: now });
-    if (!store.signers().some((signer) => signer.id === signerId))
-      store.saveSigner({
-        id: signerId,
-        publicKey,
-        label: "Railway runner",
-        source: "railway",
-        addedAt: now,
-        revokedAt: null,
-      });
+    store.transaction(() => {
+      if (!existing)
+        store.saveSigner({
+          id: signerId,
+          publicKey,
+          label: "Railway runner",
+          source: "railway",
+          addedAt: now,
+          revokedAt: null,
+        });
+      // a new coordinator key retires the old one
+      for (const signer of store.signers())
+        if (
+          signer.source === "railway" &&
+          signer.id !== signerId &&
+          !signer.revokedAt
+        )
+          store.saveSigner({ ...signer, revokedAt: now });
+    });
   }
   const leased = (run: Run) =>
     Date.now() - Date.parse(run.allocatedAt ?? run.createdAt);
@@ -326,6 +333,12 @@ export const createCoordinator = (options: {
     )
       throw new Error("Invalid runner timestamps");
     store.updateRun(id, { logs: result.output, startedAt: result.startedAt });
+    // another coordinator may have rotated the key mid-run
+    const signer = signerId ? store.getSigner(signerId) : undefined;
+    if (result.exitCode === 0 && (!signer || signer.revokedAt)) {
+      finish(id, "failed", "Coordinator key was retired during the run");
+      return;
+    }
     if (result.exitCode === 0 && signerId) {
       const receipt = signReceipt(
         {
