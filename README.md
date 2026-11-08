@@ -12,10 +12,10 @@ At agentic volume, CI is expensive and slow. Acorn lets trusted laptops and agen
 
 ## How it works
 
-1. **Run anywhere.** Optionally test your committed code locally and publish a signed receipt before pushing.
+1. **Run anywhere.** Optionally test your committed code locally or in your agent's container and publish a signed receipt before pushing.
 2. **Push normally.** A GitHub Actions workflow checks for a matching receipt. Without one, Acorn starts a Railway container through its GraphQL API, runs CI, and removes it.
 3. **Keep the latest run.** New pushes cancel obsolete CI for the same PR.
-4. **Check before merging.** Choose **Enable auto-merge** on the PR. Acorn runs fresh CI against the proposed merge, then GitHub merges when all requirements pass. This extra check is on by default and can be disabled.
+4. **Check before merging.** By default, Acorn runs fresh CI against a proposed merge, then GitHub merges when all requirements pass. This extra check is on by default and can be disabled.
 
 ## Check the receipts
 
