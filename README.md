@@ -4,7 +4,8 @@
 
 Assert CI anywhere. Respect it everywhere.
 
-At agentic volume, CI is expensive and slow. Acorn lets trusted laptops and agent containers share that work and ship signed receipts that follow the code.
+At agentic volume, CI is expensive and slow. Acorn lets trusted laptops and agent containers share that work and ship signed receipts that can be used to bypass centralized CI and break the bottleneck.
+
 
 [Live dashboard](https://acorn-production-f406.up.railway.app) · [Demo repo](https://github.com/jacobheric/acorn-demo) · [Setup guide](docs/setup.md)
 
