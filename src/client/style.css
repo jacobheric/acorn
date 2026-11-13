@@ -573,8 +573,15 @@ main {
 }
 .run-row:hover,
 .run-row.chosen,
-.receipt-row:hover {
+.receipt-row:hover,
+.receipt-row.chosen {
   background: #fafcf7;
+}
+.accordion-chevron {
+  flex-shrink: 0;
+}
+[aria-expanded="true"] > .accordion-chevron {
+  transform: rotate(90deg);
 }
 .run-status-icon {
   width: 27px;
@@ -1335,9 +1342,6 @@ main {
   .run-title small {
     font-size: 8px;
     gap: 4px;
-  }
-  .run-row > svg {
-    display: none;
   }
   .panel-heading {
     padding: 20px 17px;

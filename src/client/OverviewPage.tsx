@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import {
   Activity,
   ArrowRight,
@@ -51,7 +51,6 @@ export const OverviewPage = ({
     data?.runs.find(isActive);
   const queued =
     data?.runs.filter((run) => run.status === "queued").length ?? 0;
-  const currentRun = data?.runs.find((run) => run.id === selectedRun);
   const localReceipts =
     data?.receipts.filter(
       (receipt) =>
@@ -189,129 +188,146 @@ export const OverviewPage = ({
           ) : (
             <div className="run-list">
               {data.runs.slice(0, 12).map((run) => (
-                <button
-                  className={`run-row ${run.id === selectedRun ? "chosen" : ""}`}
-                  key={run.id}
-                  onClick={() =>
-                    setSelectedRun(run.id === selectedRun ? null : run.id)
-                  }
-                >
-                  <span className={`run-status-icon ${run.status}`}>
-                    {isActive(run) ? (
-                      <LoaderCircle className="spin" size={17} />
-                    ) : run.status === "passed" ? (
-                      <Check size={17} />
-                    ) : run.status === "cancelled" ? (
-                      <Square size={14} />
-                    ) : (
-                      <X size={17} />
-                    )}
-                  </span>
-                  <div className="run-title">
-                    <strong>{run.message || "CI run"}</strong>
-                    <small>
-                      <GitBranch size={12} />
-                      {short(run.commit)}
-                      <span>·</span>
-                      {run.reason === "firewall"
-                        ? run.pullRequest
-                          ? "Merge gate"
-                          : "Full CI"
-                        : run.reason === "fallback"
-                          ? "GitHub fallback"
-                          : "Manual run"}
-                      {run.pullRequest && (
-                        <>
-                          <span>·</span>PR #{run.pullRequest.number}
-                        </>
-                      )}
-                    </small>
-                  </div>
-                  <div className="run-meta">
-                    <span className={`status-text ${run.status}`}>
-                      {statusLabel(run)}
-                    </span>
-                    <small>
-                      {relative(run.createdAt)}
-                      <span>·</span>
-                      {duration(run.createdAt, run.finishedAt)}
-                    </small>
-                  </div>
-                  <ChevronRight size={15} />
-                </button>
-              ))}
-            </div>
-          )}
-          {currentRun && (
-            <div className="run-details">
-              <div className="detail-heading">
-                <strong>Run details</strong>
-                <code>{short(currentRun.id)}</code>
-                {isActive(currentRun) && data?.operator && (
+                <Fragment key={run.id}>
                   <button
-                    className="text-button danger"
-                    disabled={Boolean(busy)}
+                    className={`run-row ${run.id === selectedRun ? "chosen" : ""}`}
+                    id={`run-toggle-${run.id}`}
+                    aria-expanded={run.id === selectedRun}
+                    aria-controls={
+                      run.id === selectedRun
+                        ? `run-details-${run.id}`
+                        : undefined
+                    }
                     onClick={() =>
-                      void act("stop", async () => {
-                        await api(`/runs/${currentRun.id}/stop`, {});
-                      })
+                      setSelectedRun(run.id === selectedRun ? null : run.id)
                     }
                   >
-                    <Square size={12} /> Stop
+                    <span className={`run-status-icon ${run.status}`}>
+                      {isActive(run) ? (
+                        <LoaderCircle className="spin" size={17} />
+                      ) : run.status === "passed" ? (
+                        <Check size={17} />
+                      ) : run.status === "cancelled" ? (
+                        <Square size={14} />
+                      ) : (
+                        <X size={17} />
+                      )}
+                    </span>
+                    <div className="run-title">
+                      <strong>{run.message || "CI run"}</strong>
+                      <small>
+                        <GitBranch size={12} />
+                        {short(run.commit)}
+                        <span>·</span>
+                        {run.reason === "firewall"
+                          ? run.pullRequest
+                            ? "Merge gate"
+                            : "Full CI"
+                          : run.reason === "fallback"
+                            ? "GitHub fallback"
+                            : "Manual run"}
+                        {run.pullRequest && (
+                          <>
+                            <span>·</span>PR #{run.pullRequest.number}
+                          </>
+                        )}
+                      </small>
+                    </div>
+                    <div className="run-meta">
+                      <span className={`status-text ${run.status}`}>
+                        {statusLabel(run)}
+                      </span>
+                      <small>
+                        {relative(run.createdAt)}
+                        <span>·</span>
+                        {duration(run.createdAt, run.finishedAt)}
+                      </small>
+                    </div>
+                    <ChevronRight
+                      className="accordion-chevron"
+                      size={15}
+                      aria-hidden="true"
+                    />
                   </button>
-                )}
-              </div>
-              <div className="detail-grid">
-                {currentRun.pullRequest && (
-                  <span>
-                    Pull request
-                    <a
-                      href={`https://github.com/${currentRun.repository}/pull/${currentRun.pullRequest.number}`}
-                      target="_blank"
-                      rel="noreferrer"
+                  {run.id === selectedRun && (
+                    <div
+                      id={`run-details-${run.id}`}
+                      className="run-details"
+                      role="region"
+                      aria-labelledby={`run-toggle-${run.id}`}
                     >
-                      #{currentRun.pullRequest.number} ·{" "}
-                      {short(currentRun.pullRequest.head)}
-                    </a>
-                  </span>
-                )}
-                <span>
-                  Source tree<code>{short(currentRun.tree)}</code>
-                </span>
-                <span>
-                  Container
-                  <code>
-                    {currentRun.cleanupAt
-                      ? "removed"
-                      : currentRun.serviceId
-                        ? "provisioned"
-                        : "requested"}
-                  </code>
-                </span>
-                <span>
-                  Receipt
-                  <code>
-                    {currentRun.receiptId
-                      ? short(currentRun.receiptId)
-                      : "pending"}
-                  </code>
-                </span>
-              </div>
-              {currentRun.error && (
-                <p className="error-text">{currentRun.error}</p>
-              )}
-              {currentRun.cleanupError && (
-                <p className="error-text">
-                  Cleanup retry: {currentRun.cleanupError}
-                </p>
-              )}
-              <pre className="terminal">
-                <span className="terminal-label">$ npm test</span>
-                {currentRun.logs ||
-                  (currentRun.status === "running"
-                    ? "CI is running. Output will appear when the suite finishes."
-                    : "Waiting for runner output…")}
-              </pre>
+                      <div className="detail-heading">
+                        <strong>Run details</strong>
+                        <code>{short(run.id)}</code>
+                        {isActive(run) && data?.operator && (
+                          <button
+                            className="text-button danger"
+                            disabled={Boolean(busy)}
+                            onClick={() =>
+                              void act("stop", async () => {
+                                await api(`/runs/${run.id}/stop`, {});
+                              })
+                            }
+                          >
+                            <Square size={12} /> Stop
+                          </button>
+                        )}
+                      </div>
+                      <div className="detail-grid">
+                        {run.pullRequest && (
+                          <span>
+                            Pull request
+                            <a
+                              href={`https://github.com/${run.repository}/pull/${run.pullRequest.number}`}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              #{run.pullRequest.number} ·{" "}
+                              {short(run.pullRequest.head)}
+                            </a>
+                          </span>
+                        )}
+                        <span>
+                          Source tree<code>{short(run.tree)}</code>
+                        </span>
+                        <span>
+                          Container
+                          <code>
+                            {run.cleanupAt
+                              ? "removed"
+                              : run.serviceId
+                                ? "provisioned"
+                                : "requested"}
+                          </code>
+                        </span>
+                        <span>
+                          Receipt
+                          <code>
+                            {run.receiptId
+                              ? short(run.receiptId)
+                              : "pending"}
+                          </code>
+                        </span>
+                      </div>
+                      {run.error && (
+                        <p className="error-text">{run.error}</p>
+                      )}
+                      {run.cleanupError && (
+                        <p className="error-text">
+                          Cleanup retry: {run.cleanupError}
+                        </p>
+                      )}
+                      <pre className="terminal">
+                        <span className="terminal-label">$ npm test</span>
+                        {run.logs ||
+                          (run.status === "running"
+                            ? "CI is running. Output will appear when the suite finishes."
+                            : "Waiting for runner output…")}
+                      </pre>
+                    </div>
+                  )}
+                </Fragment>
+              ))}
             </div>
           )}
           <div className="panel-footer">
