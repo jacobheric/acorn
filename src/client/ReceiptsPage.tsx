@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import {
   ChevronRight,
   Copy,
@@ -21,14 +21,11 @@ export const ReceiptsPage = ({
   const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
   const [verification, setVerification] = useState<Verification | null>(null);
   const [verifyCommit, setVerifyCommit] = useState("");
-  const currentReceipt = data?.receipts.find(
-    (receipt) => receipt.id === selectedReceipt,
-  );
   return (
     <>
       <PageHeading
         eyebrow="EVIDENCE, NOT REPETITION"
-        title="The result stays."
+        title="Check the receipts."
         description="Signed results for exact source trees. A new commit message can keep the same receipt."
       />
       <div className="panel verify-panel">
@@ -104,77 +101,94 @@ export const ReceiptsPage = ({
             const expired =
               Date.now() - Date.parse(receipt.claim.startedAt) > 7 * 86400000;
             return (
-              <button
-                key={receipt.id}
-                className="receipt-row"
-                onClick={() =>
-                  setSelectedReceipt(
-                    receipt.id === selectedReceipt ? null : receipt.id,
-                  )
-                }
-              >
-                <span className="receipt-icon">
-                  {signer?.source === "local" ? (
-                    <Laptop size={20} />
-                  ) : (
-                    <Server size={20} />
-                  )}
-                </span>
-                <div className="run-title">
-                  <strong>{signer?.label ?? "Unknown signer"}</strong>
-                  <small>
-                    <code>{short(receipt.claim.tree)}</code>
-                    <span>·</span>source tree
-                  </small>
-                </div>
-                <code className="receipt-id">{short(receipt.id)}</code>
-                <Badge tone={signer?.revokedAt || expired ? "warning" : ""}>
-                  {signer?.revokedAt
-                    ? "Revoked key"
-                    : expired
-                      ? "Expired"
-                      : "Signed"}
-                </Badge>
-                <small className="muted">{relative(receipt.receivedAt)}</small>
-                <ChevronRight size={15} />
-              </button>
+              <Fragment key={receipt.id}>
+                <button
+                  id={`receipt-toggle-${receipt.id}`}
+                  aria-expanded={receipt.id === selectedReceipt}
+                  aria-controls={
+                    receipt.id === selectedReceipt
+                      ? `receipt-details-${receipt.id}`
+                      : undefined
+                  }
+                  className={`receipt-row ${receipt.id === selectedReceipt ? "chosen" : ""}`}
+                  onClick={() =>
+                    setSelectedReceipt(
+                      receipt.id === selectedReceipt ? null : receipt.id,
+                    )
+                  }
+                >
+                  <span className="receipt-icon">
+                    {signer?.source === "local" ? (
+                      <Laptop size={20} />
+                    ) : (
+                      <Server size={20} />
+                    )}
+                  </span>
+                  <div className="run-title">
+                    <strong>{signer?.label ?? "Unknown signer"}</strong>
+                    <small>
+                      <code>{short(receipt.claim.tree)}</code>
+                      <span>·</span>source tree
+                    </small>
+                  </div>
+                  <code className="receipt-id">{short(receipt.id)}</code>
+                  <Badge tone={signer?.revokedAt || expired ? "warning" : ""}>
+                    {signer?.revokedAt
+                      ? "Revoked key"
+                      : expired
+                        ? "Expired"
+                        : "Signed"}
+                  </Badge>
+                  <small className="muted">{relative(receipt.receivedAt)}</small>
+                  <ChevronRight
+                    className="accordion-chevron"
+                    size={15}
+                    aria-hidden="true"
+                  />
+                </button>
+                {receipt.id === selectedReceipt && (
+                  <div
+                    id={`receipt-details-${receipt.id}`}
+                    className="receipt-detail"
+                    role="region"
+                    aria-labelledby={`receipt-toggle-${receipt.id}`}
+                  >
+                    <div className="detail-heading">
+                      <strong>Signed envelope</strong>
+                      <button
+                        className="text-button"
+                        onClick={() =>
+                          void copy(
+                            JSON.stringify(
+                              {
+                                claim: receipt.claim,
+                                signature: receipt.signature,
+                              },
+                              null,
+                              2,
+                            ),
+                          )
+                        }
+                      >
+                        <Copy size={14} />
+                        Copy JSON
+                      </button>
+                    </div>
+                    <pre>
+                      {JSON.stringify(
+                        {
+                          claim: receipt.claim,
+                          signature: receipt.signature,
+                        },
+                        null,
+                        2,
+                      )}
+                    </pre>
+                  </div>
+                )}
+              </Fragment>
             );
           })
-        )}
-        {currentReceipt && (
-          <div className="receipt-detail">
-            <div className="detail-heading">
-              <strong>Signed envelope</strong>
-              <button
-                className="text-button"
-                onClick={() =>
-                  void copy(
-                    JSON.stringify(
-                      {
-                        claim: currentReceipt.claim,
-                        signature: currentReceipt.signature,
-                      },
-                      null,
-                      2,
-                    ),
-                  )
-                }
-              >
-                <Copy size={14} />
-                Copy JSON
-              </button>
-            </div>
-            <pre>
-              {JSON.stringify(
-                {
-                  claim: currentReceipt.claim,
-                  signature: currentReceipt.signature,
-                },
-                null,
-                2,
-              )}
-            </pre>
-          </div>
         )}
       </section>
       <p className="footnote">
